@@ -1,4 +1,4 @@
-# Ultraman vs Kaiju — 都市決戰
+# Tokusatsu-arena
 
 A browser-based 3D tokusatsu action game built with Three.js.
 
