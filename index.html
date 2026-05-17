@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ULTRAMAN — 都市決戰</title>
+  <style>
+    @keyframes pulseRed {
+      0%, 100% { box-shadow: 0 0 12px #ff2244, inset 0 0 8px rgba(0,0,0,0.3); }
+      50%      { box-shadow: 0 0 24px #ff2244, inset 0 0 8px rgba(0,0,0,0.3); }
+    }
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000;
+      font-family: "Segoe UI", "Microsoft JhengHei", sans-serif; color: #fff; }
+    #app { width: 100vw; height: 100vh; }
+    canvas { display: block; }
+
+    #hud {
+      position: fixed; inset: 0; pointer-events: none;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.85);
+    }
+    #hud-top { display: flex; justify-content: space-between; padding: 22px 32px; }
+    .stat-block { min-width: 280px; }
+    .stat-block .label { display: flex; align-items: center; gap: 10px; font-weight: 800;
+      letter-spacing: 2px; font-size: 14px; }
+    .stat-block.enemy .label { justify-content: flex-end; }
+    .stat-block .bar { height: 14px; background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.5); border-radius: 2px; margin-top: 5px; overflow: hidden; }
+    .stat-block .bar .fill { height: 100%; transition: width 0.2s; }
+
+    #color-timer {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #fff, #00aaff 50%, #002a44);
+      box-shadow: 0 0 14px #00ccff, inset 0 0 8px rgba(0,0,0,0.3);
+    }
+    #color-timer.warn {
+      background: radial-gradient(circle at 35% 35%, #fff, #ff9922 50%, #552010);
+      box-shadow: 0 0 14px #ff9922, inset 0 0 8px rgba(0,0,0,0.3);
+    }
+    #color-timer.danger {
+      background: radial-gradient(circle at 35% 35%, #fff, #ff2244 50%, #550010);
+      animation: pulseRed 0.4s infinite;
+    }
+
+    #help { position: fixed; left: 20px; bottom: 20px; font-size: 12px; opacity: 0.75;
+      line-height: 1.65; letter-spacing: 0.5px; }
+    #cooldown { position: fixed; right: 24px; bottom: 22px; font-size: 13px;
+      letter-spacing: 1px; opacity: 0.9; }
+
+    #message { position: fixed; top: 45%; left: 50%; transform: translate(-50%, -50%);
+      font-size: 96px; font-weight: 900; letter-spacing: 12px;
+      text-shadow: 0 6px 20px #000, 0 0 32px currentColor;
+      opacity: 0; transition: opacity 0.6s, transform 0.6s; pointer-events: none; }
+    #message.show { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+    #message-sub { display: block; font-size: 16px; letter-spacing: 4px;
+      margin-top: 16px; opacity: 0.8; }
+    #retry-btn {
+      display: block; margin: 36px auto 0;
+      padding: 14px 48px; font-size: 18px; font-weight: 800; letter-spacing: 6px;
+      background: linear-gradient(180deg, #ff5566, #cc1122); color: #fff;
+      border: 2px solid #fff; border-radius: 4px; cursor: pointer;
+      box-shadow: 0 6px 28px rgba(255,40,60,0.5); pointer-events: auto;
+      text-shadow: none;
+    }
+    #retry-btn:hover { transform: translateY(-2px); }
+    #message.show #retry-btn { opacity: 1; }
+
+    #start-screen {
+      position: fixed; inset: 0; z-index: 10;
+      background: radial-gradient(ellipse at center, #2a0a3a 0%, #050010 75%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    #start-screen h1 { font-size: 80px; margin: 0; letter-spacing: 16px;
+      background: linear-gradient(180deg, #fff 0%, #fff 45%, #ff3355 90%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      text-shadow: 0 4px 32px rgba(255,60,90,0.5); }
+    #start-screen .sub { font-size: 16px; letter-spacing: 6px; opacity: 0.7;
+      margin: 4px 0 40px; }
+    #start-screen button { padding: 16px 56px; font-size: 18px; font-weight: 800;
+      letter-spacing: 4px;
+      background: linear-gradient(180deg, #ff5566 0%, #cc1122 100%); color: #fff;
+      border: 2px solid #fff; border-radius: 4px; cursor: pointer;
+      box-shadow: 0 6px 28px rgba(255,40,60,0.5); transition: transform 0.15s; }
+    #start-screen button:hover { transform: translateY(-2px);
+      box-shadow: 0 10px 32px rgba(255,40,60,0.6); }
+    #start-screen .ctrls { margin-top: 40px; font-size: 13px; opacity: 0.6;
+      letter-spacing: 2px; line-height: 1.8; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="hud" style="display:none">
+    <div id="hud-top">
+      <div class="stat-block">
+        <div class="label"><div id="color-timer"></div> ULTRAMAN</div>
+        <div class="bar"><div class="fill" id="hp-fill"
+          style="width:100%;background:linear-gradient(90deg,#7cf,#28d)"></div></div>
+      </div>
+      <div class="stat-block enemy">
+        <div class="label">KAIJU 怪獸</div>
+        <div class="bar"><div class="fill" id="enemy-hp-fill"
+          style="width:100%;background:linear-gradient(90deg,#f55,#a00)"></div></div>
+      </div>
+    </div>
+    <div id="help">
+      WASD &nbsp;移動 <span style="opacity:.5">（跟隨模式 = 相對視角）</span><br>
+      滑鼠 &nbsp;旋轉跟隨視角 ・ Q/E &nbsp;鍵盤輔助<br>
+      SHIFT &nbsp;衝刺 ・ SPACE &nbsp;跳躍<br>
+      J / 左鍵 &nbsp;揮拳 ・ K / 右鍵 &nbsp;踢擊<br>
+      F &nbsp;斯派修姆光線（前方瞄準・10s 冷卻）<br>
+      V &nbsp;切換相機 ・ ESC &nbsp;暫停選單<br>
+      M &nbsp;靜音 ・ O &nbsp;設定（可改按鍵）
+    </div>
+    <div id="cooldown"><span id="beam-cd">光線 就緒</span></div>
+  </div>
+
+  <!-- Settings panel (toggled with O key) -->
+  <div id="settings-panel">
+    <div class="settings-card">
+      <h2>設定</h2>
+      <label class="setting-row">
+        <span>滑鼠 Y 軸反轉</span>
+        <input type="checkbox" id="set-invert-y" />
+      </label>
+      <label class="setting-row">
+        <span>顯示胸口色彩計時器</span>
+        <input type="checkbox" id="set-show-timer" />
+      </label>
+      <label class="setting-row">
+        <span>滑鼠靈敏度</span>
+        <input type="range" id="set-mouse-sens" min="0.2" max="3" step="0.1" />
+        <span class="setting-val" id="val-mouse-sens"></span>
+      </label>
+      <label class="setting-row">
+        <span>音量</span>
+        <input type="range" id="set-sfx-vol" min="0" max="1" step="0.05" />
+        <span class="setting-val" id="val-sfx-vol"></span>
+      </label>
+      <label class="setting-row">
+        <span>跟隨相機距離</span>
+        <input type="range" id="set-cam-dist" min="35" max="120" step="5" />
+        <span class="setting-val" id="val-cam-dist"></span>
+      </label>
+      <div class="setting-row model-row">
+        <span>角色模型</span>
+        <select id="set-model"></select>
+      </div>
+      <div id="model-apply-note">變更模型後重啟生效</div>
+      <label class="setting-row">
+        <span>模型大小</span>
+        <input type="range" id="set-model-scale" min="0.1" max="40" step="0.1" />
+        <span class="setting-val" id="val-model-scale"></span>
+      </label>
+      <div class="setting-section-title">按鍵</div>
+      <div class="keybind-grid">
+        <div class="keybind-row"><span>揮拳</span><button class="keybind-btn" data-action="punch"></button></div>
+        <div class="keybind-row"><span>踢擊</span><button class="keybind-btn" data-action="kick"></button></div>
+        <div class="keybind-row"><span>跳躍</span><button class="keybind-btn" data-action="jump"></button></div>
+        <div class="keybind-row"><span>光線</span><button class="keybind-btn" data-action="beam"></button></div>
+        <div class="keybind-row"><span>衝刺</span><button class="keybind-btn" data-action="sprint"></button></div>
+        <div class="keybind-row"><span>切換相機</span><button class="keybind-btn" data-action="camera"></button></div>
+      </div>
+      <div class="setting-note">滑鼠左鍵 = 揮拳 · 右鍵 = 踢擊（不可改）</div>
+      <div class="settings-actions">
+        <button id="set-close">關閉 (O)</button>
+        <button id="set-reset">重置預設</button>
+      </div>
+    </div>
+  </div>
+  <style>
+    #settings-panel {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center; z-index: 12;
+      backdrop-filter: blur(4px);
+    }
+    #settings-panel.open { display: flex; }
+    .settings-card {
+      background: linear-gradient(160deg, #1a1622, #0e0a18);
+      border: 1px solid rgba(255,80,100,0.4); border-radius: 8px;
+      padding: 32px 36px; min-width: 380px;
+      box-shadow: 0 16px 60px rgba(0,0,0,0.7), 0 0 32px rgba(255,40,80,0.15);
+      color: #fff;
+    }
+    .settings-card h2 {
+      margin: 0 0 22px; letter-spacing: 6px; font-size: 22px; text-align: center;
+      background: linear-gradient(180deg, #fff, #ff667a); -webkit-background-clip: text;
+      background-clip: text; color: transparent;
+    }
+    .setting-row { display: grid; grid-template-columns: 1fr 160px 40px;
+      align-items: center; gap: 12px; padding: 8px 0; font-size: 14px; letter-spacing: 1px; }
+    .setting-row > input[type=checkbox] { width: 22px; height: 22px;
+      grid-column: 2 / span 1; justify-self: end; accent-color: #ff5566; }
+    .setting-row > input[type=range] { width: 100%; accent-color: #ff5566; }
+    .setting-val { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.8; }
+    .setting-section-title { margin-top: 18px; font-size: 13px; letter-spacing: 3px;
+      opacity: 0.6; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .keybind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 10px; }
+    .keybind-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+    .keybind-btn { min-width: 80px; padding: 5px 10px; font-size: 12px;
+      background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 3px; cursor: pointer; font-family: inherit; letter-spacing: 1px; }
+    .keybind-btn.listening { background: rgba(255,80,100,0.6); animation: pulseListen 0.6s infinite; }
+    @keyframes pulseListen { 50% { opacity: 0.6; } }
+    .setting-note { font-size: 11px; opacity: 0.55; text-align: center; margin-top: 10px; letter-spacing: 1px; }
+    .model-row { grid-template-columns: 1fr 240px; }
+    .model-row select {
+      grid-column: 2 / -1; padding: 6px 8px; font-family: inherit; font-size: 12px;
+      background: #1b1426; color: #fff; border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 3px; cursor: pointer;
+    }
+    #model-apply-note { display: none; font-size: 11px; color: #ffcc66;
+      text-align: center; margin: 6px 0 0; letter-spacing: 1px; }
+    #model-apply-note.show { display: block; }
+    .settings-actions { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
+    .settings-actions button {
+      padding: 10px 22px; font-size: 13px; letter-spacing: 2px;
+      background: linear-gradient(180deg, #ff5566, #cc1122); color: #fff;
+      border: 1px solid #fff; border-radius: 3px; cursor: pointer;
+    }
+    .settings-actions button#set-reset {
+      background: linear-gradient(180deg, #444, #222);
+    }
+  </style>
+
+  <div id="message"></div>
+
+  <div id="start-screen">
+    <h1>ULTRAMAN</h1>
+    <button id="start-btn">開 始 戰 鬥</button>
+    <div class="ctrls">
+      WASD 移動 ・ SHIFT 衝刺 ・ SPACE 跳躍<br>
+      左鍵 / J 揮拳 ・ 右鍵 / K 踢擊 ・ F 光線<br>
+      V 切換視角（戰鬥 / 跟隨）<br>
+      ESC 暫停選單 ・ O 設定
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.js",
+      "three/addons/": "./vendor/"
+    }
+  }
+  </script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

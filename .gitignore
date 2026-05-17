@@ -1,0 +1,16 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+dist/
+.cache/
+*.tmp
+
+# Claude Code session cache / per-machine state
+.memsearch/
+.claude/settings.local.json
+
+# Large zip duplicates (we keep the .glb files only)
+assets/*.zip
