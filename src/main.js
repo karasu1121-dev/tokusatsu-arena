@@ -3,7 +3,7 @@ import { Ultraman } from './player.js';
 import { ModelUltraman, loadModel } from './player_model.js';
 import { loadMixamoClip } from './anim_retarget.js';
 import { Kaiju } from './enemy.js';
-import { createWorld, updateBuildings, settleStacks, physicsBuildings } from './world.js';
+import { createWorld, updateBuildings, settleStacks, physicsBuildings, animateSea } from './world.js';
 import { Effects } from './effects.js';
 import { HUD } from './hud.js';
 import { SoundManager } from './audio.js';
@@ -111,7 +111,7 @@ modelStatus.textContent = MODEL_URL ? '載入 3D 模型中…' : '使用程序�
 const MIXAMO_CLIPS = {
   idle:  { url: './assets/Idle.fbx',                loop: true,  timeScale: 1.0 },
   walk:  { url: './assets/Walking.fbx',             loop: true,  timeScale: 1.0 },
-  run:   { url: './assets/Walking.fbx',             loop: true,  timeScale: 1.8 },
+  run:   { url: './assets/Running.fbx',             loop: true,  timeScale: 1.0 },
   punch: { url: './assets/Cross Punch.fbx',         loop: false, fitDuration: 0.9 },
   kick:  { url: './assets/Mma Kick.fbx',            loop: false, fitDuration: 1.1 },
   jump:  { url: './assets/Jumping.fbx',             loop: true,  timeScale: 1.0 },
@@ -719,6 +719,26 @@ function destroyBuildingsOnBeam(origin, target) {
   }
 }
 
+// Find the closest unfallen building the beam ray hits before reaching `target`.
+// Returns { building, point, dist } or null if nothing's in the way.
+function firstBuildingHit(origin, target) {
+  const dir = new THREE.Vector3().subVectors(target, origin).normalize();
+  const ray = new THREE.Ray(origin, dir);
+  const maxDist = origin.distanceTo(target);
+  let best = null;
+  for (const b of buildings) {
+    if (b.userData.fallen) continue;
+    _tmpSize.set(b.userData.w, b.userData.h, b.userData.d);
+    _tmpBox.setFromCenterAndSize(b.position, _tmpSize);
+    const hit = ray.intersectBox(_tmpBox, _tmpHit);
+    if (!hit) continue;
+    const d = origin.distanceTo(_tmpHit);
+    if (d > maxDist) continue;
+    if (!best || d < best.dist) best = { building: b, point: _tmpHit.clone(), dist: d };
+  }
+  return best;
+}
+
 const clock = new THREE.Clock();
 
 function animate() {
@@ -775,6 +795,7 @@ function animate() {
     updateBuildings(buildings, dt);    // legacy 90° tip animation (unused now)
     physicsBuildings(buildings, dt);   // free-tumble for kicked blocks
     settleStacks(buildings, dt);
+    animateSea(scene, dt);
 
     // ----- Collisions -----
     resolveOverlap(ultraman, kaiju);
@@ -876,7 +897,9 @@ function animate() {
       }
     }
 
-    // Kaiju ranged beam — fires forward in kaiju's facing direction
+    // Kaiju ranged beam — fires forward, but STOPS at the first building it
+    // hits (still destroys that building). Won't pass through to hit player
+    // if there's a wall in between.
     if (kaiju.beamFiredThisFrame) {
       const origin = kaiju.upperBodyPosition();
       origin.x += Math.sin(kaiju.group.rotation.y) * 8;
@@ -885,9 +908,17 @@ function animate() {
       target.x += Math.sin(kaiju.group.rotation.y) * 500;
       target.z += Math.cos(kaiju.group.rotation.y) * 500;
       target.y -= 6;
-      effects.fireBeam(origin, target, null, 0xff3322);
-      damageUltramanOnBeam(origin, target);
-      destroyBuildingsOnBeam(origin, target);
+      const blocker = firstBuildingHit(origin, target);
+      const effectiveTarget = blocker ? blocker.point : target;
+      effects.fireBeam(origin, effectiveTarget, null, 0xff3322);
+      if (blocker) {
+        // Beam absorbed by building — destroy it, player is safe
+        const d = new THREE.Vector3().subVectors(effectiveTarget, origin).normalize();
+        kickBuilding(blocker.building, d.x, d.z, 95);
+      } else {
+        // Clear line of sight — beam reaches and can damage player
+        damageUltramanOnBeam(origin, effectiveTarget);
+      }
       cameraShake = Math.max(cameraShake, 1.3);
       sfx.beamFire();
       kaiju.beamFiredThisFrame = false;
