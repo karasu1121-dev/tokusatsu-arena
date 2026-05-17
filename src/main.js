@@ -930,10 +930,12 @@ function animate() {
       gameOver = true;
       showMessage('敗 北', '怪獸佔據了都市…', '#ff4466', true);
       sfx.defeat();
+      if (document.pointerLockElement) document.exitPointerLock();
     } else if (kaiju.hp <= 0) {
       gameOver = true;
       showMessage('勝 利', '都市的和平守住了', '#ffe44a', true);
       sfx.victory();
+      if (document.pointerLockElement) document.exitPointerLock();
     }
 
     hud.update(ultraman, kaiju);
