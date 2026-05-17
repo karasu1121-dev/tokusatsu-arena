@@ -189,6 +189,19 @@ function doJump() {
   ultraman.jump();
   if (before && !ultraman.onGround) sfx.jump();
 }
+function toggleCamera() {
+  if (!gameStarted || gameOver) return;
+  cameraMode = cameraMode === 'fight' ? 'follow' : 'fight';
+  if (cameraMode === 'follow') {
+    cameraYaw = ultraman.group.rotation.y;
+    // Pointer-lock the cursor for mouse-look (no-op on touch devices)
+    if (renderer.domElement.requestPointerLock) {
+      renderer.domElement.requestPointerLock();
+    }
+  } else if (document.pointerLockElement) {
+    document.exitPointerLock();
+  }
+}
 function doBeam() {
   if (!gameStarted || gameOver || paused) return;
   const before = ultraman.beaming;
@@ -223,17 +236,7 @@ addEventListener('keydown', e => {
     else if (e.code === k.kick)   doKick();
     else if (e.code === k.mute)   sfx.setMuted(!sfx.muted);
     else if (e.code === k.menu)   togglePauseMenu();
-    else if (e.code === k.camera) {
-      cameraMode = cameraMode === 'fight' ? 'follow' : 'fight';
-      if (cameraMode === 'follow') {
-        cameraYaw = ultraman.group.rotation.y;
-        if (renderer.domElement.requestPointerLock) {
-          renderer.domElement.requestPointerLock();
-        }
-      } else if (document.pointerLockElement) {
-        document.exitPointerLock();
-      }
-    }
+    else if (e.code === k.camera) toggleCamera();
   }
   // Q/E hold to rotate the follow cam (independent of WASD)
   if (e.code === 'KeyQ') cameraTurnRate = -1.6;
@@ -403,11 +406,7 @@ let sprintTouched = false;
       else if (action === 'jump')   doJump();
       else if (action === 'beam')   doBeam();
       else if (action === 'menu')   { if (gameStarted && !gameOver) togglePauseMenu(); }
-      else if (action === 'camera') {
-        if (!gameStarted || gameOver) return;
-        cameraMode = cameraMode === 'fight' ? 'follow' : 'fight';
-        if (cameraMode === 'follow') cameraYaw = ultraman.group.rotation.y;
-      }
+      else if (action === 'camera') toggleCamera();
     };
     const release = e => {
       e.preventDefault();
