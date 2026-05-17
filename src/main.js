@@ -116,6 +116,7 @@ const MIXAMO_CLIPS = {
   kick:  { url: './assets/Mma Kick.fbx',            loop: false, fitDuration: 1.1 },
   jump:  { url: './assets/Jumping.fbx',             loop: true,  timeScale: 1.0 },
   beam:  { url: './assets/Rifle Aiming Idle.fbx',   loop: true,  timeScale: 1.0 },
+  death: { url: './assets/Death From Front Headshot.fbx', loop: false, fitDuration: 2.0 },
 };
 
 if (MODEL_URL) {
@@ -937,10 +938,12 @@ function animate() {
 
     hud.update(ultraman, kaiju);
   } else if (gameOver) {
+    // Keep updating so the death / victory animations keep playing
+    ultraman.update(dt);
     kaiju.update(dt, ultraman);
     effects.update(dt);
     updateBuildings(buildings, dt);
-    if (ultraman.mixer) ultraman.mixer.update(dt);
+    physicsBuildings(buildings, dt);
   }
 
   // ----- Camera -----
