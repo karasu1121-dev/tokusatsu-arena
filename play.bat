@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title Ultraman vs Kaiju
+title SILVER GIANT
 
 REM Find a Node.js installation
 where node >nul 2>&1
@@ -19,7 +19,7 @@ if errorlevel 1 (
 REM Open the game in default browser after a short delay, then start the server
 start "" "http://localhost:8000/"
 echo.
-echo  Ultraman vs Kaiju — server starting at http://localhost:8000/
+echo  SILVER GIANT — server starting at http://localhost:8000/
 echo  Close this window to stop the server.
 echo.
 node serve.js

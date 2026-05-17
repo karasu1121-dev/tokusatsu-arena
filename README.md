@@ -1,6 +1,7 @@
 # Tokusatsu-arena
 
-A browser-based 3D tokusatsu action game built with Three.js.
+A browser-based 3D tokusatsu action game built with Three.js. A giant hero
+defends a destructible city from a chasing kaiju.
 
 ## Play
 
@@ -24,7 +25,7 @@ node serve.js
 | SPACE | Jump (stand on rooftops) |
 | Left click / J | Punch |
 | Right click / K | Kick |
-| F | Specium beam (10s cooldown, aims forward) |
+| F | Beam (10s cooldown, aims forward) |
 | V | Toggle camera (fight-view ↔ follow-cam) |
 | Mouse | Look around (follow-cam mode) |
 | Q / E | Keyboard camera turn (follow-cam mode) |
@@ -48,13 +49,13 @@ node serve.js
 ## Project structure
 
 ```
-ultraman-game/
+silver-giant/
 ├── index.html               game entry + HUD + settings panel
 ├── play.bat                 Windows launcher
 ├── serve.js                 static file server (Node)
 ├── src/                     game logic
 │   ├── main.js              renderer, input, game loop, collisions, camera
-│   ├── player.js            procedural fallback Ultraman
+│   ├── player.js            procedural fallback hero
 │   ├── player_model.js      glTF / Mixamo-driven character + AnimationMixer
 │   ├── enemy.js             Kaiju AI, attack + beam
 │   ├── world.js             city blocks, sea, rigid-body physics for kicked blocks
