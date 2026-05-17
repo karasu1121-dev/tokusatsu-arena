@@ -20,6 +20,7 @@ const SETTINGS_DEFAULTS = {
     './assets/ultraman_mixamo_rigged.glb': 1.5,
   },
   showColorTimer: false,            // hide chest sphere — generic rigs don't match Ultraman style
+  forceTouchUI:   false,            // force-show the on-screen joystick + buttons (auto for touch devices)
   keys: {
     punch:  'KeyJ',
     kick:   'KeyK',
@@ -339,6 +340,119 @@ async function populateModels() {
 }
 populateModels();
 
+// ---------- Touch controls ----------
+const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+function applyTouchVisibility() {
+  document.body.classList.toggle('touch-on', isTouch || !!settings.forceTouchUI);
+}
+applyTouchVisibility();
+
+const stickVec = { x: 0, y: 0 };       // joystick output, range [-1,1]
+let sprintTouched = false;
+(function initTouchUI() {
+  const stick = document.getElementById('touch-stick');
+  const thumb = document.getElementById('touch-stick-thumb');
+  let stickTouchId = null;
+
+  function updateStick(t) {
+    const rect = stick.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top  + rect.height / 2;
+    const maxR = rect.width / 2 - 35;
+    let dx = t.clientX - cx;
+    let dy = t.clientY - cy;
+    const m = Math.hypot(dx, dy);
+    if (m > maxR) { dx = dx / m * maxR; dy = dy / m * maxR; }
+    thumb.style.transform = `translate(${dx}px, ${dy}px)`;
+    stickVec.x = dx / maxR;
+    stickVec.y = dy / maxR;
+  }
+  function clearStick() {
+    thumb.style.transform = 'translate(0, 0)';
+    stickVec.x = 0; stickVec.y = 0;
+  }
+  stick.addEventListener('touchstart', e => {
+    const t = e.changedTouches[0];
+    stickTouchId = t.identifier;
+    updateStick(t);
+    e.preventDefault();
+  }, { passive: false });
+  stick.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) if (t.identifier === stickTouchId) updateStick(t);
+    e.preventDefault();
+  }, { passive: false });
+  const endStick = e => {
+    for (const t of e.changedTouches) if (t.identifier === stickTouchId) {
+      stickTouchId = null;
+      clearStick();
+    }
+    e.preventDefault();
+  };
+  stick.addEventListener('touchend', endStick, { passive: false });
+  stick.addEventListener('touchcancel', endStick, { passive: false });
+
+  // Action buttons
+  document.querySelectorAll('#touch-actions .tb, #touch-topright .tb').forEach(btn => {
+    const action = btn.dataset.action;
+    const press = e => {
+      e.preventDefault();
+      btn.classList.add('held');
+      if (action === 'sprint')      sprintTouched = true;
+      else if (action === 'punch')  doPunch();
+      else if (action === 'kick')   doKick();
+      else if (action === 'jump')   doJump();
+      else if (action === 'beam')   doBeam();
+      else if (action === 'menu')   { if (gameStarted && !gameOver) togglePauseMenu(); }
+      else if (action === 'camera') {
+        if (!gameStarted || gameOver) return;
+        cameraMode = cameraMode === 'fight' ? 'follow' : 'fight';
+        if (cameraMode === 'follow') cameraYaw = ultraman.group.rotation.y;
+      }
+    };
+    const release = e => {
+      e.preventDefault();
+      btn.classList.remove('held');
+      if (action === 'sprint') sprintTouched = false;
+    };
+    btn.addEventListener('touchstart', press, { passive: false });
+    btn.addEventListener('touchend',   release, { passive: false });
+    btn.addEventListener('touchcancel', release, { passive: false });
+    // Also accept mouse for testing on desktop
+    btn.addEventListener('mousedown', press);
+    btn.addEventListener('mouseup',   release);
+    btn.addEventListener('mouseleave', release);
+  });
+
+  // Camera look — drag in the right portion of the screen rotates the follow cam
+  const lookArea = document.getElementById('touch-look-area');
+  let lookId = null, lookLastX = 0, lookLastY = 0;
+  lookArea.addEventListener('touchstart', e => {
+    const t = e.changedTouches[0];
+    lookId = t.identifier;
+    lookLastX = t.clientX; lookLastY = t.clientY;
+    e.preventDefault();
+  }, { passive: false });
+  lookArea.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) if (t.identifier === lookId) {
+      const dx = t.clientX - lookLastX;
+      const dy = t.clientY - lookLastY;
+      lookLastX = t.clientX; lookLastY = t.clientY;
+      if (cameraMode === 'follow') {
+        const sens = 0.006 * settings.mouseSens;
+        cameraYaw   -= dx * sens;
+        cameraPitch += dy * sens * (settings.invertY ? 1 : -1);
+        cameraPitch = Math.max(-1.0, Math.min(0.6, cameraPitch));
+      }
+    }
+    e.preventDefault();
+  }, { passive: false });
+  const endLook = e => {
+    for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+  };
+  lookArea.addEventListener('touchend', endLook, { passive: false });
+  lookArea.addEventListener('touchcancel', endLook, { passive: false });
+})();
+
 // Show/hide the on-character chest sphere + light based on settings.
 function applyColorTimerVisibility() {
   const u = window.__game && window.__game.ultraman;
@@ -397,6 +511,7 @@ function initSettingsUI() {
   const fields = [
     { input: 'set-invert-y',   key: 'invertY',        type: 'check' },
     { input: 'set-show-timer', key: 'showColorTimer', type: 'check' },
+    { input: 'set-force-touch', key: 'forceTouchUI', type: 'check' },
     { input: 'set-mouse-sens', key: 'mouseSens',      type: 'range', valOut: 'val-mouse-sens', fmt: v => v.toFixed(1) + '×' },
     { input: 'set-sfx-vol',    key: 'sfxVolume',      type: 'range', valOut: 'val-sfx-vol',    fmt: v => Math.round(v * 100) + '%' },
     { input: 'set-cam-dist',   key: 'camDistance',    type: 'range', valOut: 'val-cam-dist',   fmt: v => v + 'u' },
@@ -416,6 +531,7 @@ function initSettingsUI() {
       // live-apply side effects
       if (f.key === 'sfxVolume') sfx.setVolume(settings.sfxVolume);
       if (f.key === 'showColorTimer') applyColorTimerVisibility();
+      if (f.key === 'forceTouchUI')   applyTouchVisibility();
       saveSettings();
     });
   }
@@ -758,26 +874,27 @@ function animate() {
     // ----- Input direction -----
     const dir = new THREE.Vector3();
     if (cameraMode === 'follow') {
-      // Camera-relative. screenRight = world direction that appears on the
-      // RIGHT side of the rendered image when the camera looks along +fwd.
-      // With camera behind the player looking through them in +fwd, world +X
-      // ends up on the screen's LEFT — so screenRight is the negated cross.
       const camFwd     = new THREE.Vector3(Math.sin(cameraYaw), 0, Math.cos(cameraYaw));
       const screenRight = new THREE.Vector3(-Math.cos(cameraYaw), 0, Math.sin(cameraYaw));
       if (keys.KeyW) dir.add(camFwd);
       if (keys.KeyS) dir.addScaledVector(camFwd, -1);
       if (keys.KeyA) dir.addScaledVector(screenRight, -1);
       if (keys.KeyD) dir.add(screenRight);
+      // Touch joystick: y- = forward, x = right
+      if (stickVec.x || stickVec.y) {
+        dir.addScaledVector(camFwd,     -stickVec.y);
+        dir.addScaledVector(screenRight, stickVec.x);
+      }
     } else {
-      // World-relative — matches the fixed fight-cam framing
       if (keys.KeyW) dir.z -= 1;
       if (keys.KeyS) dir.z += 1;
       if (keys.KeyA) dir.x -= 1;
       if (keys.KeyD) dir.x += 1;
+      if (stickVec.x || stickVec.y) { dir.x += stickVec.x; dir.z += stickVec.y; }
     }
     if (dir.lengthSq() > 0) dir.normalize();
 
-    const sprint = !!(keys[settings.keys.sprint] || keys.ShiftLeft || keys.ShiftRight);
+    const sprint = sprintTouched || !!(keys[settings.keys.sprint] || keys.ShiftLeft || keys.ShiftRight);
     if (cameraMode === 'follow') {
       // Stellar-Blade style: mouse orbits the player (player doesn't rotate
       // while standing still); when WASD is pressed, player snaps to the
