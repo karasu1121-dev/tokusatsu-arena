@@ -15,8 +15,10 @@ const SETTINGS_DEFAULTS = {
   mouseSens:   1.0,
   sfxVolume:   0.45,
   camDistance: 60,
-  model:       './assets/y_bot_from_mixamo.glb',
-  modelScales: {},                  // per-model URL → scale override
+  model:       './assets/ultraman_mixamo_rigged.glb',
+  modelScales: {                    // per-model URL → scale override
+    './assets/ultraman_mixamo_rigged.glb': 1.5,
+  },
   showColorTimer: false,            // hide chest sphere — generic rigs don't match Ultraman style
   keys: {
     punch:  'KeyJ',
@@ -47,7 +49,7 @@ settings.keys = Object.assign({}, SETTINGS_DEFAULTS.keys, settings.keys || {});
 //
 // Active model — picked in the Settings panel (persisted to localStorage).
 // Defaults to Y Bot for first-time users (Mixamo-native rig).
-const DEFAULT_MODEL = './assets/y_bot_from_mixamo.glb';
+const DEFAULT_MODEL = './assets/ultraman_mixamo_rigged.glb';
 const MODEL_URL = settings.model || DEFAULT_MODEL;
 
 // ----- Renderer -----
