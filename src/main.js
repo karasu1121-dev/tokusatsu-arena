@@ -11,7 +11,7 @@ import { SoundManager } from './audio.js';
 // ---------- Settings (persisted to localStorage) — must be declared before
 // any other module-scope code that reads `settings`.
 const SETTINGS_DEFAULTS = {
-  invertY:     false,
+  invertY:     true,
   mouseSens:   1.0,
   sfxVolume:   0.45,
   camDistance: 60,
@@ -237,7 +237,13 @@ addEventListener('keydown', e => {
   // Q/E hold to rotate the follow cam (independent of WASD)
   if (e.code === 'KeyQ') cameraTurnRate = -1.6;
   if (e.code === 'KeyE') cameraTurnRate =  1.6;
-  // Escape opens the pause menu (browser also auto-releases pointer lock)
+  // Escape opens the pause menu (browser also auto-releases pointer lock).
+  // During game over, ANY key returns the player to the start screen.
+  if (gameStarted && gameOver) {
+    e.preventDefault();
+    location.reload();
+    return;
+  }
   if (e.code === 'Escape' && gameStarted) {
     e.preventDefault();
     togglePauseMenu();
@@ -438,10 +444,10 @@ function togglePauseMenu() {
     document.exitPointerLock();
   }
 }
-// Browser auto-releases pointer lock on Esc — open the menu then too
+// Browser auto-releases pointer lock on Esc — open the menu then too.
+// (Skip when the game is already over so the defeat/victory screen stays clean.)
 document.addEventListener('pointerlockchange', () => {
-  if (!document.pointerLockElement && cameraMode === 'follow' && gameStarted && !paused) {
-    // User pressed Esc to release pointer — treat as opening pause menu
+  if (!document.pointerLockElement && cameraMode === 'follow' && gameStarted && !paused && !gameOver) {
     togglePauseMenu();
   }
 });
