@@ -205,10 +205,8 @@ function toggleCamera() {
 function doBeam() {
   if (!gameStarted || gameOver || paused) return;
   const before = ultraman.beaming;
-  ultraman.tryBeam(effects, (origin, target) => {
-    cameraShake = Math.max(cameraShake, 1.6);
-    destroyBuildingsOnBeam(origin, target);
-    damageKaijuOnBeam(origin, target);
+  ultraman.tryBeam(effects, (/*origin, target*/) => {
+    cameraShake = Math.max(cameraShake, 1.4);
     sfx.beamFire();
   });
   if (!before && ultraman.beaming) sfx.beamCharge();
@@ -277,6 +275,7 @@ let gameStarted = false;
 let gameOver = false;
 let paused    = false;
 let cameraShake = 0;
+let sweepBeamMesh = null;        // active SweepBeam during ultraman.beamActive
 let cameraMode = 'fight';      // 'fight' (auto-frame both) | 'follow' (behind player)
 let cameraYaw  = 0;            // mouse-orbit yaw (decoupled from player.facing when idle)
 let cameraPitch = -0.15;       // negative = looking slightly down at the player
@@ -792,6 +791,22 @@ function tipBuilding(b, dirX, dirZ) { kickBuilding(b, dirX, dirZ, 40); }
 // Forward-fire beam: damage the kaiju if its body intersects the ray segment.
 const _tmpHitK = new THREE.Vector3();
 const _tmpSphere = new THREE.Sphere();
+// Per-frame damage for the sweep beam — `dpsScale` × dt ≈ damage this frame.
+function damageKaijuPerFrame(origin, target, dt, dps) {
+  if (kaiju.hp <= 0) return false;
+  const dir = new THREE.Vector3().subVectors(target, origin).normalize();
+  const ray = new THREE.Ray(origin, dir);
+  const maxDist = origin.distanceTo(target);
+  _tmpSphere.center.copy(kaiju.upperBodyPosition());
+  _tmpSphere.radius = kaiju.radius + 6;
+  const hit = ray.intersectSphere(_tmpSphere, _tmpHitK);
+  if (hit && origin.distanceTo(_tmpHitK) <= maxDist) {
+    kaiju.damage(dps * dt);
+    return true;
+  }
+  return false;
+}
+
 function damageUltramanOnBeam(origin, target) {
   if (ultraman.hp <= 0) return;
   const dir = new THREE.Vector3().subVectors(target, origin).normalize();
@@ -867,6 +882,9 @@ const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
+  try { _animate_inner(); } catch (e) { console.error('animate threw:', e); }
+}
+function _animate_inner() {
   const dt = Math.min(clock.getDelta(), 0.05);
 
   if (gameStarted && !gameOver && !paused) {
@@ -1020,6 +1038,31 @@ function animate() {
         cameraShake = Math.max(cameraShake, 1.0);
         sfx.hit();
       }
+    }
+
+    // Ultraman sweep-beam — tracked each frame from the player's facing.
+    // SweepBeam mesh is created on rising edge, updated, then disposed.
+    if (ultraman.beamActive) {
+      if (!sweepBeamMesh) sweepBeamMesh = effects.createSweepBeam(0x88eeff);
+      const origin = ultraman.beamOrigin;
+      const target = ultraman.beamTarget;
+      const blocker = firstBuildingHit(origin, target);
+      const effectiveTarget = blocker ? blocker.point : target;
+      sweepBeamMesh.update(origin, effectiveTarget);
+      if (blocker) {
+        const d = new THREE.Vector3().subVectors(effectiveTarget, origin).normalize();
+        kickBuilding(blocker.building, d.x, d.z, 95);
+      } else {
+        // Per-frame DPS that totals ~70 damage over the 1s sweep on a held target
+        if (damageKaijuPerFrame(origin, target, dt, 70)) {
+          effects.spawnImpact(kaiju.upperBodyPosition());
+          cameraShake = Math.max(cameraShake, 0.4);
+        }
+        destroyBuildingsOnBeam(origin, target);
+      }
+    } else if (sweepBeamMesh) {
+      sweepBeamMesh.dispose();
+      sweepBeamMesh = null;
     }
 
     // Kaiju ranged beam — fires forward, but STOPS at the first building it

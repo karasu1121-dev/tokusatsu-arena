@@ -17,6 +17,12 @@ export class Effects {
     }
   }
 
+  // Persistent, updatable beam — caller drives it via .update(origin, target)
+  // every frame, then .dispose() when done.
+  createSweepBeam(color = 0x88eeff) {
+    return new SweepBeam(this.scene, color);
+  }
+
   spawnImpact(position) {
     this.active.push(new Impact(this.scene, position, 0xffcc44));
   }
@@ -107,6 +113,57 @@ class Beam {
     this.scene.remove(this.glow);
     this.scene.remove(this.flash);
     this.scene.remove(this.muzzle);
+    this.core.geometry.dispose();
+    this.glow.geometry.dispose();
+    this.core.material.dispose();
+    this.glow.material.dispose();
+  }
+}
+
+class SweepBeam {
+  constructor(scene, color) {
+    this.scene = scene;
+    this.color = color;
+    // Reusable meshes — scaled each frame so length tracks origin→target
+    const coreGeo = new THREE.CylinderGeometry(1.0, 1.0, 1, 16, 1, true);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 1, side: THREE.DoubleSide,
+    });
+    this.core = new THREE.Mesh(coreGeo, coreMat);
+    const glowGeo = new THREE.CylinderGeometry(3.2, 3.2, 1, 16, 1, true);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.7,
+      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    this.glow = new THREE.Mesh(glowGeo, glowMat);
+    this.flash  = new THREE.PointLight(color, 7, 140);
+    this.muzzle = new THREE.PointLight(color, 5, 70);
+    scene.add(this.core, this.glow, this.flash, this.muzzle);
+    this._up = new THREE.Vector3(0, 1, 0);
+    this._tmpDir = new THREE.Vector3();
+    this._tmpMid = new THREE.Vector3();
+    this._tmpQuat = new THREE.Quaternion();
+  }
+
+  update(origin, target) {
+    this._tmpDir.subVectors(target, origin);
+    const len = Math.max(0.01, this._tmpDir.length());
+    this._tmpMid.lerpVectors(origin, target, 0.5);
+    this.core.position.copy(this._tmpMid);
+    this.glow.position.copy(this._tmpMid);
+    this._tmpQuat.setFromUnitVectors(this._up, this._tmpDir.clone().normalize());
+    this.core.quaternion.copy(this._tmpQuat);
+    this.glow.quaternion.copy(this._tmpQuat);
+    // Stretch along bone (cylinder default height=1, along Y)
+    this.core.scale.set(1, len, 1);
+    const wob = 1 + Math.sin(performance.now() / 25) * 0.22;
+    this.glow.scale.set(wob, len, wob);
+    this.flash.position.copy(target);
+    this.muzzle.position.copy(origin);
+  }
+
+  dispose() {
+    this.scene.remove(this.core, this.glow, this.flash, this.muzzle);
     this.core.geometry.dispose();
     this.glow.geometry.dispose();
     this.core.material.dispose();

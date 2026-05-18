@@ -64,17 +64,20 @@ export class ModelUltraman {
     this.beamTimer    = 0;
     this.beamCooldown = 0;
     this._beamFired   = false;
+    this.beamActive   = false;          // true during the sweep phase
+    this.beamOrigin   = new THREE.Vector3();
+    this.beamTarget   = new THREE.Vector3();
 
     // ----- Tuning -----
     this.speed         = 28;
     this.sprintSpeed   = 55;
     this.jumpV         = 82;
     this.gravity       = 82;
-    this.punchDuration = 0.65;
-    this.kickDuration  = 1.1;
-    this.beamWindup    = 0.6;
-    this.beamHold      = 1.4;
-    this.beamCdMax     = 10.0;
+    this.punchDuration   = 0.65;
+    this.kickDuration    = 1.1;
+    this.beamWindup      = 0.6;
+    this.beamFireDuration = 1.0;        // duration of the sweep (player can re-aim within this)
+    this.beamCdMax       = 10.0;
 
     this._currentState = null;
     this._setupModel(gltf, opts);
@@ -269,16 +272,19 @@ export class ModelUltraman {
     this.kickActive = false;
   }
 
-  // Beam fires straight in the player's facing direction (no auto-aim).
-  // `onFire(origin, target)` is called when the beam launches.
+  // Sweeping beam: windup → 1s of fire that tracks the player's CURRENT
+  // facing each frame. `onFire(origin, target)` is invoked ONCE when the
+  // sweep begins; main.js drives the SweepBeam visual + damage off the
+  // per-frame `beamActive` / `beamOrigin` / `beamTarget` fields.
   tryBeam(effects, onFire) {
     if (this.beaming || this.punching || this.kicking || this.beamCooldown > 0 || !this.onGround) return;
     this.beaming      = true;
-    this.beamTimer    = this.beamWindup + this.beamHold;
+    this.beamTimer    = this.beamWindup + this.beamFireDuration;
     this.beamCooldown = this.beamCdMax;
     this._beamFired   = false;
     this._beamEffects = effects;
     this._beamOnFire  = onFire;
+    this.beamActive   = false;
   }
 
   update(dt) {
@@ -324,28 +330,39 @@ export class ModelUltraman {
       }
     }
 
-    // ----- Beam timing -----
+    // ----- Beam timing (windup → sweep) -----
     if (this.beaming) {
       this.beamTimer -= dt;
-      const elapsed = this.beamWindup + this.beamHold - this.beamTimer;
-      if (elapsed >= this.beamWindup && !this._beamFired) {
-        this._beamFired = true;
-        // Origin: chest, slightly in front of body
-        const origin = this.group.position.clone();
-        origin.y += 26;
-        origin.x += Math.sin(this.group.rotation.y) * 6;
-        origin.z += Math.cos(this.group.rotation.y) * 6;
-        // Target: straight ahead in the player's facing direction (no auto-aim)
-        const range = 600;
-        const target = new THREE.Vector3(
-          origin.x + Math.sin(this.group.rotation.y) * range,
-          origin.y - 4,                              // slight downward angle
-          origin.z + Math.cos(this.group.rotation.y) * range
+      const total = this.beamWindup + this.beamFireDuration;
+      const elapsed = total - this.beamTimer;
+      if (elapsed < this.beamWindup) {
+        this.beamActive = false;
+      } else {
+        // FIRING — recompute origin + target each frame from current facing
+        const ry = this.group.rotation.y;
+        this.beamOrigin.set(
+          this.group.position.x + Math.sin(ry) * 6,
+          this.group.position.y + 26,
+          this.group.position.z + Math.cos(ry) * 6
         );
-        this._beamEffects.fireBeam(origin, target, null);
-        if (this._beamOnFire) this._beamOnFire(origin, target);
+        const range = 600;
+        this.beamTarget.set(
+          this.beamOrigin.x + Math.sin(ry) * range,
+          this.beamOrigin.y - 4,
+          this.beamOrigin.z + Math.cos(ry) * range
+        );
+        this.beamActive = true;
+        if (!this._beamFired) {
+          this._beamFired = true;
+          if (this._beamOnFire) this._beamOnFire(this.beamOrigin, this.beamTarget);
+        }
       }
-      if (this.beamTimer <= 0) this.beaming = false;
+      if (this.beamTimer <= 0) {
+        this.beaming = false;
+        this.beamActive = false;
+      }
+    } else {
+      this.beamActive = false;
     }
     if (this.beamCooldown > 0) this.beamCooldown -= dt;
 
