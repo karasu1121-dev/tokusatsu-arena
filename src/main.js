@@ -93,6 +93,7 @@ scene.add(kaiju.group);
 // ----- Systems -----
 const effects = new Effects(scene);
 const hud = new HUD();
+hud.setCityTotal(buildings.length);
 const sfx = new SoundManager();
 
 // dev hook — lets the console inspect/poke entities
@@ -1106,6 +1107,7 @@ function _animate_inner() {
     }
 
     hud.update(ultraman, kaiju);
+    hud.updateCity(buildings);
   } else if (gameOver) {
     // Keep updating so the death / victory animations keep playing
     ultraman.update(dt);

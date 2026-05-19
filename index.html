@@ -45,6 +45,14 @@
       line-height: 1.65; letter-spacing: 0.5px; }
     #cooldown { position: fixed; right: 24px; bottom: 22px; font-size: 13px;
       letter-spacing: 1px; opacity: 0.9; }
+    #city-integrity { position: fixed; top: 90px; left: 50%; transform: translateX(-50%);
+      color: #fff; font-size: 14px; letter-spacing: 3px;
+      background: rgba(0,0,0,0.45); padding: 6px 18px; border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.2);
+      text-shadow: 0 2px 4px rgba(0,0,0,0.7); }
+    #city-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+    #city-val.warn   { color: #ffc14a; }
+    #city-val.danger { color: #ff5a6a; }
 
     #message { position: fixed; top: 45%; left: 50%; transform: translate(-50%, -50%);
       font-size: 96px; font-weight: 900; letter-spacing: 12px;
@@ -112,6 +120,7 @@
       M &nbsp;靜音 ・ O &nbsp;設定（可改按鍵）
     </div>
     <div id="cooldown"><span id="beam-cd">光線 就緒</span></div>
+    <div id="city-integrity">城市完整度 <span id="city-val">100%</span></div>
   </div>
 
   <!-- Settings panel (toggled with O key) -->

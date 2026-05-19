@@ -29,6 +29,8 @@ const CLIP_MAP = {
   death: 'Death',
 };
 
+const MIXAMO_FADE = 0.15;
+
 export async function loadModel(url) {
   const loader = new GLTFLoader();
   return await loader.loadAsync(url);
@@ -381,8 +383,14 @@ export class ModelUltraman {
     const mixAction = this.mixamoActions && this.mixamoActions[state];
     if (mixAction) {
       if (this._currentMixAction !== mixAction) {
-        if (this._currentMixAction) this._currentMixAction.stop();
-        mixAction.reset().play();
+        // Cross-fade between Mixamo clips to avoid pose snapping
+        // (was causing "arms cross weirdly" on first beam load)
+        if (this._currentMixAction) this._currentMixAction.fadeOut(MIXAMO_FADE);
+        mixAction.reset();
+        mixAction.enabled = true;
+        mixAction.setEffectiveWeight(1);
+        mixAction.fadeIn(MIXAMO_FADE);
+        mixAction.play();
         this._currentMixAction = mixAction;
       }
       this.mixer.update(dt);
