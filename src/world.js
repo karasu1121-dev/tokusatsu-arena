@@ -288,7 +288,7 @@ function addNeonStreets(scene) {
 }
 
 function addOilTanks(scene, buildings) {
-  const tankCount = 3 + Math.floor(Math.random() * 2);
+  const tankCount = 10;
   const tankMat = new THREE.MeshStandardMaterial({
     color: 0xb9bec7,
     metalness: 0.45,
@@ -296,6 +296,24 @@ function addOilTanks(scene, buildings) {
     emissive: 0x331100,
     emissiveIntensity: 0.08,
   });
+
+  const clearYard = (pos, radius) => {
+    for (let i = buildings.length - 1; i >= 0; i--) {
+      const b = buildings[i];
+      if (b.userData.isOilTank) continue;
+      const dx = b.position.x - pos.x;
+      const dz = b.position.z - pos.z;
+      if (Math.hypot(dx, dz) < radius) {
+        scene.remove(b);
+        if (b.geometry) b.geometry.dispose();
+        if (b.material) {
+          if (Array.isArray(b.material)) b.material.forEach(m => m.dispose && m.dispose());
+          else b.material.dispose && b.material.dispose();
+        }
+        buildings.splice(i, 1);
+      }
+    }
+  };
 
   for (let i = 0; i < tankCount; i++) {
     let pos = null;
@@ -316,10 +334,15 @@ function addOilTanks(scene, buildings) {
         break;
       }
     }
-    if (!pos) continue;
 
     const radius = 13 + Math.random() * 4;
     const height = 28 + Math.random() * 10;
+    if (!pos) {
+      const angle = (i / tankCount) * Math.PI * 2 + Math.random() * 0.25;
+      const ringRadius = 210 + (i % 2) * 38;
+      pos = new THREE.Vector3(Math.sin(angle) * ringRadius, 0, Math.cos(angle) * ringRadius);
+    }
+    clearYard(pos, radius + 18);
     const tank = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 32), tankMat.clone());
     tank.position.set(pos.x, height / 2, pos.z);
     tank.castShadow = true;
@@ -430,13 +453,17 @@ export function createWorld() {
         const oz = (Math.random() - 0.5) * (44 - d);
 
         let col;
+        let nightBuildingColor = null;
         if (lighting.name === 'night') {
           const neonPalette = [
-            0x26f5ff, 0xff3ff2, 0x7cff6b, 0xffd84d,
-            0x6d8cff, 0xff7a3d, 0x45ffd0, 0xd86bff,
+            0xff3ff2, 0xff5ecf, 0xff2f92,
+            0x7cff00, 0x2dff6f, 0xb6ff28,
+            0xff7a1a, 0xffa12b, 0xff4f1f,
+            0x26f5ff, 0x45ffd0, 0xd86bff,
           ];
           col = new THREE.Color(neonPalette[Math.floor(Math.random() * neonPalette.length)]);
-          col.lerp(new THREE.Color(0xffffff), 0.18 + Math.random() * 0.12);
+          col.lerp(new THREE.Color(0xffffff), 0.08 + Math.random() * 0.1);
+          nightBuildingColor = col.clone();
         } else {
           const hue = 200 + Math.random() * 40;
           const sat = 0.10 + Math.random() * 0.15;
@@ -447,7 +474,7 @@ export function createWorld() {
           color: col,
           roughness: 0.75,
           metalness: 0.1,
-          emissive: 0xffaa55,
+          emissive: lighting.name === 'night' ? col.clone().multiplyScalar(0.45) : 0xffaa55,
           emissiveIntensity: (lighting.buildingLight + Math.random() * lighting.buildingLightVariance) * lighting.buildingLitBoost,
         };
         if (lighting.useBuildingTextures) {
@@ -476,6 +503,8 @@ export function createWorld() {
             w, h: blockH, d,
             fallen: false, fallSpeed: 0, baseY: curY + blockH / 2,
             stackIndex: s, stackTotal: blocks,
+            isNightBuilding: lighting.name === 'night',
+            nightColor: nightBuildingColor,
           };
           scene.add(b);
           buildings.push(b);

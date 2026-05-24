@@ -43,10 +43,18 @@ export class SoundManager {
     const manifest = {
       beamZap: './assets/sfx/beam_zap.mp3',
       beamEnergy: './assets/sfx/beam_energy.mp3',
+      beamChargeHowarth: './assets/sfx/beam_charge_howarth.mp3',
+      beamPulseHowarth: './assets/sfx/beam_pulse_howarth.mp3',
+      beamSnapHowarth: './assets/sfx/beam_snap_howarth.mp3',
+      beamTailHowarth: './assets/sfx/beam_tail_howarth.mp3',
       buildingCrash: './assets/sfx/building_crash.mp3',
       explosionLarge: './assets/sfx/explosion_large.mp3',
       explosionMedium: './assets/sfx/explosion_medium.mp3',
       metalHit: './assets/sfx/metal_hit.mp3',
+      constructionHeavy1: './assets/sfx/construction_heavy_1.mp3',
+      constructionHeavy2: './assets/sfx/construction_heavy_2.mp3',
+      jumpStep1: './assets/sfx/jump_step_1.mp3',
+      jumpStep2: './assets/sfx/jump_step_2.mp3',
     };
     this._loading = Promise.all(Object.entries(manifest).map(async ([name, url]) => {
       try {
@@ -145,7 +153,15 @@ export class SoundManager {
   }
 
   jump() {
-    this._osc({ type: 'triangle', freq: 220, freqEnd: 540, dur: 0.22, gain: 0.12 });
+    const step = this._pick(['jumpStep1', 'jumpStep2']);
+    this._playAsset(step, {
+      offset: this._pick([0, 1.1, 2.2, 3.4]),
+      dur: 0.22,
+      gain: 0.22,
+      rate: 0.75,
+    });
+    this._osc({ type: 'triangle', freq: 180, freqEnd: 620, dur: 0.28, gain: 0.18 });
+    this._noise({ dur: 0.24, filter: 'highpass', filterFreq: 450, gain: 0.11 });
   }
 
   land() {
@@ -160,21 +176,48 @@ export class SoundManager {
   }
 
   beamCharge() {
-    this._osc({ type: 'sine', freq: 380, freqEnd: 1400, dur: 0.6, gain: 0.16, gainAttack: 0.35 });
+    const played = this._playAsset('beamChargeHowarth', {
+      offset: this._pick([0, 1.8, 3.2]),
+      dur: 0.9,
+      gain: 0.34,
+      rate: 1.05,
+    });
+    this._osc({ type: 'sine', freq: 380, freqEnd: 1400, dur: 0.6, gain: played ? 0.1 : 0.24, gainAttack: 0.35 });
   }
 
   beamFire() {
-    if (this._playAsset('beamEnergy', { offset: 0, dur: 1.2, gain: 0.28, rate: 1.08 })) {
+    let played = false;
+    played = this._playAsset('beamEnergy', { offset: 0, dur: 1.2, gain: 0.48, rate: 1.08 }) || played;
+    played = this._playAsset('beamPulseHowarth', {
+      offset: this._pick([0, 1.4, 2.7, 4.0]),
+      dur: 0.95,
+      gain: 0.36,
+      rate: 1.05 + Math.random() * 0.12,
+    }) || played;
+    played = this._playAsset('beamSnapHowarth', {
+      offset: this._pick([0, 0.75, 1.5]),
+      dur: 0.42,
+      gain: 0.3,
+      rate: 1.12 + Math.random() * 0.15,
+    }) || played;
+    if (played) {
       this._playAsset('beamZap', {
         offset: this._pick([0, 2.4, 6.4]),
         dur: 0.55,
-        gain: 0.22,
+        gain: 0.34,
         rate: 1.1 + Math.random() * 0.2,
+      });
+      this._playAsset('beamTailHowarth', {
+        offset: this._pick([0, 1.6, 2.7]),
+        dur: 0.7,
+        gain: 0.22,
+        rate: 0.95,
+        delay: 0.12,
       });
       return;
     }
-    this._osc({ type: 'sawtooth', freq: 1500, freqEnd: 220, dur: 0.7, gain: 0.22 });
-    this._noise({ dur: 0.7, filter: 'bandpass', filterFreq: 2500, filterQ: 4, gain: 0.18 });
+    this._osc({ type: 'sawtooth', freq: 1500, freqEnd: 220, dur: 0.7, gain: 0.36 });
+    this._noise({ dur: 0.7, filter: 'bandpass', filterFreq: 2500, filterQ: 4, gain: 0.28 });
   }
 
   hit() {
@@ -189,34 +232,49 @@ export class SoundManager {
   }
 
   buildingFall() {
-    if (this._playAsset('buildingCrash', {
+    let played = false;
+    played = this._playAsset('buildingCrash', {
       offset: this._pick([0, 6.4, 12.0, 18.4, 28.0, 39.0]),
-      dur: 1.25,
-      gain: 0.38,
-      rate: 0.82 + Math.random() * 0.2,
-    })) return;
-    this._osc({ type: 'sawtooth', freq: 55, freqEnd: 22, dur: 0.8, gain: 0.18 });
-    this._noise({ dur: 0.7, filterFreq: 220, gain: 0.26 });
-    this._noise({ dur: 0.5, filterFreq: 120, gain: 0.22, delay: 0.15 });
+      dur: 1.45,
+      gain: 0.52,
+      rate: 0.78 + Math.random() * 0.16,
+    }) || played;
+    played = this._playAsset(this._pick(['constructionHeavy1', 'constructionHeavy2']), {
+      offset: this._pick([0, 1.1, 2.2, 3.2]),
+      dur: 1.1,
+      gain: 0.42,
+      rate: 0.78 + Math.random() * 0.1,
+      delay: 0.03,
+    }) || played;
+    this._osc({ type: 'sawtooth', freq: 62, freqEnd: 18, dur: 1.0, gain: played ? 0.2 : 0.3 });
+    this._noise({ dur: 0.9, filterFreq: 180, gain: played ? 0.18 : 0.34 });
+    this._noise({ dur: 0.65, filterFreq: 95, gain: 0.26, delay: 0.12 });
   }
 
   explosion() {
-    if (this._playAsset('explosionLarge', {
-      offset: this._pick([0, 5.0, 10.3, 15.0, 20.0, 30.0, 38.0]),
-      dur: 1.6,
-      gain: 0.55,
-      rate: 0.9 + Math.random() * 0.15,
-    })) {
-      this._playAsset('explosionMedium', {
-        offset: this._pick([0, 3.4, 7.2, 11.2, 15.6]),
-        dur: 0.85,
-        gain: 0.25,
-        rate: 0.9,
-        delay: 0.04,
-      });
-      return;
-    }
-    this.buildingFall();
+    let played = false;
+    played = this._playAsset('explosionLarge', {
+      offset: this._pick([0, 5.0, 10.3, 15.0, 20.0, 30.0, 38.0, 48.0]),
+      dur: 2.05,
+      gain: 0.82,
+      rate: 0.82 + Math.random() * 0.12,
+    }) || played;
+    played = this._playAsset('explosionMedium', {
+      offset: this._pick([0, 3.4, 7.2, 11.2, 15.6]),
+      dur: 1.15,
+      gain: 0.46,
+      rate: 0.86,
+      delay: 0.04,
+    }) || played;
+    this._playAsset(this._pick(['constructionHeavy1', 'constructionHeavy2']), {
+      offset: this._pick([0, 1.1, 2.2, 3.2]),
+      dur: 1.25,
+      gain: 0.38,
+      rate: 0.7,
+      delay: 0.16,
+    });
+    this._osc({ type: 'sawtooth', freq: 70, freqEnd: 16, dur: 1.25, gain: played ? 0.34 : 0.42 });
+    this._noise({ dur: 1.15, filterFreq: 125, gain: played ? 0.28 : 0.42 });
   }
 
   roar() {

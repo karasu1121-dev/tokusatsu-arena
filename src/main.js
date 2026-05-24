@@ -865,6 +865,18 @@ function explodeOilTank(tank) {
   sfx.explosion();
 }
 
+function darkenFallenBuilding(b) {
+  if (!b.userData.isNightBuilding || b.userData.darkened) return;
+  b.userData.darkened = true;
+  const original = b.userData.nightColor || b.material.color;
+  const dark = original.clone().multiplyScalar(0.18);
+  const mat = b.material.clone();
+  mat.color.copy(dark);
+  if (mat.emissive) mat.emissive.copy(dark).multiplyScalar(0.25);
+  mat.emissiveIntensity = 0.02;
+  b.material = mat;
+}
+
 function kickBuilding(b, dirX, dirZ, force = 40) {
   if (b.userData.kicked) return;
   if (b.userData.isOilTank) {
@@ -873,6 +885,7 @@ function kickBuilding(b, dirX, dirZ, force = 40) {
   }
   b.userData.kicked = true;
   b.userData.fallen = true;          // disables collision / standing-on
+  darkenFallenBuilding(b);
   const mag = Math.max(0.001, Math.hypot(dirX, dirZ));
   const nx = dirX / mag, nz = dirZ / mag;
   b.userData.vel = new THREE.Vector3(nx * force, force * 0.45, nz * force);
