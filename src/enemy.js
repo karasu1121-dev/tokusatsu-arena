@@ -26,6 +26,14 @@ export class Kaiju {
     this.attackLanded = false;
     this.attackCooldown = 1.5;
     this.hurtTimer = 0;
+    this.targetLocked = true;
+    this.targetMemory = new THREE.Vector3();
+    this.lostTargetTimer = 0;
+    this.searchTurnTimer = 0;
+    this.searchFacing = this.facing;
+    this.sightGrace = 0;
+    this.aimOffset = 0;
+    this.aimOffsetTimer = 0;
 
     // Ranged red beam
     this.beaming        = false;
@@ -178,7 +186,7 @@ export class Kaiju {
     this.group.rotation.y = this.facing;
   }
 
-  update(dt, player) {
+  update(dt, player, obstacles = []) {
     if (this.aiState === 'dead' || this.hp <= 0) {
       if (this.aiState !== 'dead') {
         this.aiState = 'dead';
@@ -205,7 +213,35 @@ export class Kaiju {
 
     const toPlayer = new THREE.Vector3().subVectors(player.group.position, this.group.position);
     toPlayer.y = 0;
-    const dist = toPlayer.length();
+    const playerDist = toPlayer.length();
+    const canSeePlayer = this._canSeePlayer(player, obstacles, playerDist);
+    if (canSeePlayer) {
+      this.targetLocked = true;
+      this.targetMemory.copy(player.group.position);
+      this.lostTargetTimer = 0;
+      this.sightGrace = 0.45;
+    } else if (this.sightGrace > 0) {
+      this.sightGrace -= dt;
+    } else if (this.targetLocked) {
+      this.targetLocked = false;
+      this.targetMemory.copy(player.group.position);
+      this.lostTargetTimer = 2.5 + Math.random() * 2.5;
+      this.searchFacing = this.facing + (Math.random() - 0.5) * Math.PI;
+      this.searchTurnTimer = 0;
+    }
+
+    if (this.aimOffsetTimer <= 0) {
+      this.aimOffset = (Math.random() - 0.5) * 0.28;
+      this.aimOffsetTimer = 0.45 + Math.random() * 0.45;
+    } else {
+      this.aimOffsetTimer -= dt;
+    }
+
+    const toTarget = this.targetLocked
+      ? toPlayer
+      : new THREE.Vector3().subVectors(this.targetMemory, this.group.position);
+    toTarget.y = 0;
+    let dist = toTarget.length();
 
     // ----- Ranged beam AI -----
     // Wind up then fire when player is in mid-range. Always reset the
@@ -219,7 +255,7 @@ export class Kaiju {
         this.beaming = false;
         this.beamFiredThisFrame = true;
       }
-    } else if (this.beamCooldown <= 0 && dist > this.attackRange + 5 && dist < 250 && Math.random() < 0.012) {
+    } else if (this.targetLocked && this.beamCooldown <= 0 && playerDist > this.attackRange + 5 && playerDist < 250 && Math.random() < 0.012) {
       // Begin charge
       this.beaming = true;
       this.beamTimer = this.beamWindup;
@@ -227,7 +263,7 @@ export class Kaiju {
     }
     if (this.beaming) {
       // While charging: face player + hold, skip normal AI movement/attack
-      const desiredFacing = Math.atan2(toPlayer.x, toPlayer.z);
+      const desiredFacing = Math.atan2(toTarget.x, toTarget.z) + this.aimOffset * 0.5;
       let dy = desiredFacing - this.facing;
       while (dy > Math.PI)  dy -= Math.PI * 2;
       while (dy < -Math.PI) dy += Math.PI * 2;
@@ -262,24 +298,43 @@ export class Kaiju {
         this.attackCooldown = this.attackCooldownMax;
       }
     } else {
-      // chase
-      if (dist > 0.5) {
-        const desiredFacing = Math.atan2(toPlayer.x, toPlayer.z);
+      // chase or search
+      if (this.targetLocked && dist > 0.5) {
+        const desiredFacing = Math.atan2(toTarget.x, toTarget.z) + this.aimOffset * Math.min(1, Math.max(0, (dist - 35) / 90));
         let dy = desiredFacing - this.facing;
         while (dy > Math.PI)  dy -= Math.PI * 2;
         while (dy < -Math.PI) dy += Math.PI * 2;
         this.facing += dy * 0.05;
+      } else if (!this.targetLocked) {
+        this.lostTargetTimer -= dt;
+        this.searchTurnTimer -= dt;
+        if (this.searchTurnTimer <= 0) {
+          this.searchFacing = this.facing + (Math.random() - 0.5) * Math.PI * 1.2;
+          this.searchTurnTimer = 0.8 + Math.random() * 1.4;
+        }
+        const desiredFacing = dist > 18 ? Math.atan2(toTarget.x, toTarget.z) : this.searchFacing;
+        let dy = desiredFacing - this.facing;
+        while (dy > Math.PI)  dy -= Math.PI * 2;
+        while (dy < -Math.PI) dy += Math.PI * 2;
+        this.facing += dy * 0.035;
       }
 
-      if (dist > this.attackRange) {
-        const dir = toPlayer.clone().normalize();
-        this.velocity.x = dir.x * this.speed;
-        this.velocity.z = dir.z * this.speed;
+      if (!this.targetLocked && this.lostTargetTimer <= 0 && dist < 22) {
+        this.velocity.x = Math.sin(this.searchFacing) * this.speed * 0.45;
+        this.velocity.z = Math.cos(this.searchFacing) * this.speed * 0.45;
+        this.walkPhase += dt * 2.4;
+      } else if (dist > this.attackRange || !this.targetLocked) {
+        const dir = dist > 0.5
+          ? toTarget.clone().normalize()
+          : new THREE.Vector3(Math.sin(this.searchFacing), 0, Math.cos(this.searchFacing));
+        const speedScale = this.targetLocked ? 1 : 0.55;
+        this.velocity.x = dir.x * this.speed * speedScale;
+        this.velocity.z = dir.z * this.speed * speedScale;
         this.walkPhase += dt * 4;
       } else {
         this.velocity.x = 0;
         this.velocity.z = 0;
-        if (this.attackCooldown <= 0) {
+        if (this.targetLocked && this.attackCooldown <= 0) {
           this.aiState = 'attack';
           this.attackTimer = this.attackDuration;
           this.attackLanded = false;
@@ -310,6 +365,59 @@ export class Kaiju {
     const limit = 290;
     this.group.position.x = Math.max(-limit, Math.min(limit, this.group.position.x));
     this.group.position.z = Math.max(-limit, Math.min(limit, this.group.position.z));
+  }
+
+  _canSeePlayer(player, obstacles, dist) {
+    if (dist < 45) return true;
+
+    const toPlayer = new THREE.Vector3().subVectors(player.group.position, this.group.position);
+    toPlayer.y = 0;
+    if (toPlayer.lengthSq() < 0.01) return true;
+    const angleToPlayer = Math.atan2(toPlayer.x, toPlayer.z);
+    let da = angleToPlayer - this.facing;
+    while (da > Math.PI)  da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    if (dist > 90 && Math.abs(da) > 2.25 && Math.random() < 0.02) return false;
+
+    const from = this.group.position;
+    const to = player.group.position;
+    for (const b of obstacles) {
+      if (b.userData.fallen) continue;
+      if (this._segmentHitsBuilding(from, to, b, this.radius * 0.4)) return false;
+    }
+    return true;
+  }
+
+  _segmentHitsBuilding(from, to, building, pad = 0) {
+    const ud = building.userData;
+    const minX = building.position.x - ud.w / 2 - pad;
+    const maxX = building.position.x + ud.w / 2 + pad;
+    const minZ = building.position.z - ud.d / 2 - pad;
+    const maxZ = building.position.z + ud.d / 2 + pad;
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    let tMin = 0;
+    let tMax = 1;
+
+    if (Math.abs(dx) < 0.0001) {
+      if (from.x < minX || from.x > maxX) return false;
+    } else {
+      const tx1 = (minX - from.x) / dx;
+      const tx2 = (maxX - from.x) / dx;
+      tMin = Math.max(tMin, Math.min(tx1, tx2));
+      tMax = Math.min(tMax, Math.max(tx1, tx2));
+    }
+
+    if (Math.abs(dz) < 0.0001) {
+      if (from.z < minZ || from.z > maxZ) return false;
+    } else {
+      const tz1 = (minZ - from.z) / dz;
+      const tz2 = (maxZ - from.z) / dz;
+      tMin = Math.max(tMin, Math.min(tz1, tz2));
+      tMax = Math.min(tMax, Math.max(tz1, tz2));
+    }
+
+    return tMax >= tMin && tMax > 0.08 && tMin < 0.92;
   }
 
   upperBodyPosition() {

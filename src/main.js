@@ -66,6 +66,7 @@ document.getElementById('app').appendChild(renderer.domElement);
 
 // ----- World -----
 const { scene, buildings } = createWorld();
+renderer.toneMappingExposure = scene.userData.lightingExposure || renderer.toneMappingExposure;
 
 // ----- Camera -----
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.5, 3500);
@@ -76,18 +77,48 @@ let ultraman = new Ultraman();
 ultraman.group.position.set(-65, 0, 55);
 scene.add(ultraman.group);
 
+function randomKaijuStart(playerPosition, buildings) {
+  const minDist = 115;
+  const maxDist = 190;
+  const limit = 245;
+
+  for (let i = 0; i < 40; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = minDist + Math.random() * (maxDist - minDist);
+    const pos = new THREE.Vector3(
+      playerPosition.x + Math.sin(angle) * dist,
+      0,
+      playerPosition.z + Math.cos(angle) * dist
+    );
+    pos.x = Math.max(-limit, Math.min(limit, pos.x));
+    pos.z = Math.max(-limit, Math.min(limit, pos.z));
+
+    const tooCloseToBuilding = buildings.some(b => {
+      if (b.userData.fallen) return false;
+      const pad = 22;
+      return Math.abs(pos.x - b.position.x) < b.userData.w / 2 + pad &&
+             Math.abs(pos.z - b.position.z) < b.userData.d / 2 + pad;
+    });
+    if (!tooCloseToBuilding) return pos;
+  }
+
+  const fallbackAngle = Math.random() * Math.PI * 2;
+  return new THREE.Vector3(Math.sin(fallbackAngle) * 150, 0, Math.cos(fallbackAngle) * 150);
+}
+
 const kaiju = new Kaiju();
-kaiju.group.position.set(65, 0, -55);
+kaiju.group.position.copy(randomKaijuStart(ultraman.group.position, buildings));
+kaiju.facing = Math.random() * Math.PI * 2;
+kaiju.group.rotation.y = kaiju.facing;
 scene.add(kaiju.group);
 
-// Face each other at start
+// Let the hero begin generally aware of the threat without giving the kaiju
+// perfect opening alignment.
 {
   const dx = kaiju.group.position.x - ultraman.group.position.x;
   const dz = kaiju.group.position.z - ultraman.group.position.z;
   ultraman.facing = Math.atan2(dx, dz);
   ultraman.group.rotation.y = ultraman.facing;
-  kaiju.facing = Math.atan2(-dx, -dz);
-  kaiju.group.rotation.y = kaiju.facing;
 }
 
 // ----- Systems -----
@@ -153,7 +184,7 @@ if (MODEL_URL) {
           if (state === 'kick'  && opts.fitDuration) m.kickDuration  = opts.fitDuration;
           loaded.push(`${state}(${clip.duration.toFixed(1)}s)`);
         } catch (err) {
-          console.warn(`Mixamo clip ${opts.url} 載入失敗：`, err.message);
+          console.warn(`Mixamo clip ${opts.url} load failed:`, err.message);
         }
       }
       if (loaded.length) {
@@ -601,6 +632,45 @@ function showMessage(text, sub, color, withRetry = false) {
   }
 }
 
+function cityIntegrityPercent() {
+  if (!buildings.length) return 100;
+  let intact = 0;
+  for (const b of buildings) if (!b.userData.fallen) intact++;
+  return Math.round(intact / buildings.length * 100);
+}
+
+function victoryMessage() {
+  const pct = cityIntegrityPercent();
+  if (pct >= 90) {
+    return {
+      title: '超級守護者！',
+      sub: '你幾乎把城市都保住了，太厲害了！',
+    };
+  }
+  if (pct >= 80) {
+    return {
+      title: '做得很好！',
+      sub: '怪獸被打倒了，大家都很謝謝你！',
+    };
+  }
+  if (pct >= 70) {
+    return {
+      title: '成功守住了！',
+      sub: '有一些地方壞掉了，但你救了城市。',
+    };
+  }
+  if (pct >= 60) {
+    return {
+      title: '辛苦勝利！',
+      sub: '你贏了！下次可以試著保護更多建築。',
+    };
+  }
+  return {
+    title: '打贏了怪獸！',
+    sub: '城市受損嚴重，需要長期重建。',
+  };
+}
+
 function horizontalDist(a, b) {
   const dx = a.x - b.x, dz = a.z - b.z;
   return Math.sqrt(dx * dx + dz * dz);
@@ -768,8 +838,39 @@ function punchTipBuildings(entity, buildings) {
 
 // Kick a block with rigid-body physics — gives it linear + angular velocity
 // in the impact direction. `force` ~ 30–90 (units/sec base speed).
+function explodeOilTank(tank) {
+  if (tank.userData.exploded) return;
+  tank.userData.exploded = true;
+  tank.userData.kicked = true;
+  tank.userData.fallen = true;
+  tank.userData.atRest = true;
+  tank.visible = false;
+
+  const center = tank.position.clone();
+  center.y = tank.userData.h * 0.55;
+  const blastRadius = 78;
+  effects.spawnExplosion(center, blastRadius);
+  cameraShake = Math.max(cameraShake, 2.2);
+
+  const applyBlastDamage = (entity, maxDamage) => {
+    if (!entity || entity.hp <= 0) return;
+    const dist = horizontalDist(entity.group.position, tank.position);
+    if (dist > blastRadius) return;
+    const falloff = 1 - dist / blastRadius;
+    entity.damage(maxDamage * (0.45 + falloff * 0.55));
+    effects.spawnImpact(entity.upperBodyPosition());
+  };
+  applyBlastDamage(ultraman, 55);
+  applyBlastDamage(kaiju, 85);
+  sfx.explosion();
+}
+
 function kickBuilding(b, dirX, dirZ, force = 40) {
   if (b.userData.kicked) return;
+  if (b.userData.isOilTank) {
+    explodeOilTank(b);
+    return;
+  }
   b.userData.kicked = true;
   b.userData.fallen = true;          // disables collision / standing-on
   const mag = Math.max(0.001, Math.hypot(dirX, dirZ));
@@ -920,10 +1021,15 @@ function _animate_inner() {
       cameraYaw += cameraTurnRate * dt;
       const moving = dir.lengthSq() > 0;
       if (moving) {
-        ultraman.facing = cameraYaw;
-        ultraman.group.rotation.y = cameraYaw;
+        const backwardInput = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0) + Math.max(0, stickVec.y);
+        const strafeInput = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + stickVec.x;
+        const faceYaw = backwardInput > 0.2 && backwardInput >= Math.abs(strafeInput)
+          ? cameraYaw + Math.PI
+          : cameraYaw;
+        ultraman.facing = faceYaw;
+        ultraman.group.rotation.y = faceYaw;
         ultraman.move(dir, sprint, dt);
-        ultraman.facing = cameraYaw;
+        ultraman.facing = faceYaw;
       } else {
         ultraman.move(dir, sprint, dt);             // idle — facing stays put
       }
@@ -934,7 +1040,7 @@ function _animate_inner() {
     const wasAir = !ultraman.onGround;
     ultraman.update(dt);
     if (wasAir && ultraman.onGround) sfx.land();
-    kaiju.update(dt, ultraman);
+    kaiju.update(dt, ultraman, buildings);
     effects.update(dt);
     updateBuildings(buildings, dt);    // legacy 90° tip animation (unused now)
     physicsBuildings(buildings, dt);   // free-tumble for kicked blocks
@@ -1101,7 +1207,8 @@ function _animate_inner() {
       if (document.pointerLockElement) document.exitPointerLock();
     } else if (kaiju.hp <= 0) {
       gameOver = true;
-      showMessage('勝 利', '都市的和平守住了', '#ffe44a', true);
+      const msg = victoryMessage();
+      showMessage(msg.title, msg.sub, '#ffe44a', true);
       sfx.victory();
       if (document.pointerLockElement) document.exitPointerLock();
     }
@@ -1111,7 +1218,7 @@ function _animate_inner() {
   } else if (gameOver) {
     // Keep updating so the death / victory animations keep playing
     ultraman.update(dt);
-    kaiju.update(dt, ultraman);
+    kaiju.update(dt, ultraman, buildings);
     effects.update(dt);
     updateBuildings(buildings, dt);
     physicsBuildings(buildings, dt);

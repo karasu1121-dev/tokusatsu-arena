@@ -145,19 +145,218 @@ function makeWaterTexture() {
   return tex;
 }
 
+const LIGHTING_PRESETS = [
+  {
+    name: 'sunset',
+    background: 0xff7755,
+    fog: 0xff8866,
+    fogNear: 280,
+    fogFar: 950,
+    hemiSky: 0xff9966,
+    hemiGround: 0x223344,
+    hemiIntensity: 0.7,
+    sunColor: 0xffe0bb,
+    sunIntensity: 2.2,
+    sunPosition: [160, 260, 90],
+    rimColor: 0x6688ff,
+    rimIntensity: 0.35,
+    waterColor: 0x4a86b8,
+    groundColor: 0x484440,
+    roadColor: 0x1c1c20,
+    buildingLight: 0.04,
+    buildingLightVariance: 0.06,
+    buildingLitBoost: 1.0,
+    exposure: 1.1,
+  },
+  {
+    name: 'day',
+    background: 0x8fd3ff,
+    fog: 0xb9e4ff,
+    fogNear: 360,
+    fogFar: 1200,
+    hemiSky: 0xdff6ff,
+    hemiGround: 0x6b786f,
+    hemiIntensity: 1.05,
+    sunColor: 0xfff4d6,
+    sunIntensity: 2.6,
+    sunPosition: [120, 300, 180],
+    rimColor: 0xd6f3ff,
+    rimIntensity: 0.2,
+    waterColor: 0x4fb3d8,
+    groundColor: 0x53564a,
+    roadColor: 0x25272b,
+    buildingLight: 0.0,
+    buildingLightVariance: 0.015,
+    buildingLitBoost: 0.35,
+    exposure: 1.0,
+  },
+  {
+    name: 'night',
+    background: 0x070b1d,
+    fog: 0x101735,
+    fogNear: 230,
+    fogFar: 900,
+    hemiSky: 0x405b96,
+    hemiGround: 0x151a26,
+    hemiIntensity: 0.85,
+    sunColor: 0xb8ccff,
+    sunIntensity: 1.35,
+    sunPosition: [-180, 230, -120],
+    rimColor: 0x66aaff,
+    rimIntensity: 1.25,
+    waterColor: 0x285d8f,
+    groundColor: 0x39445a,
+    roadColor: 0x171e31,
+    buildingLight: 0.2,
+    buildingLightVariance: 0.22,
+    buildingLitBoost: 2.0,
+    exposure: 1.8,
+    stars: true,
+    useBuildingTextures: false,
+    neonStreets: true,
+  },
+];
+
+function pickLightingPreset() {
+  return LIGHTING_PRESETS[Math.floor(Math.random() * LIGHTING_PRESETS.length)];
+}
+
+function addNightStars(scene) {
+  const count = 450;
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 700 + Math.random() * 1700;
+    positions[i * 3] = Math.sin(angle) * radius;
+    positions[i * 3 + 1] = 280 + Math.random() * 850;
+    positions[i * 3 + 2] = Math.cos(angle) * radius;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xdde8ff,
+    size: 3.0,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+  });
+  scene.add(new THREE.Points(geo, mat));
+}
+
+function addNeonStreets(scene) {
+  const cyanMat = new THREE.MeshBasicMaterial({
+    color: 0x26f5ff,
+    transparent: true,
+    opacity: 0.9,
+    side: THREE.DoubleSide,
+  });
+  const magentaMat = new THREE.MeshBasicMaterial({
+    color: 0xff3ff2,
+    transparent: true,
+    opacity: 0.82,
+    side: THREE.DoubleSide,
+  });
+
+  for (let i = -300; i <= 300; i += 60) {
+    const ew = new THREE.Mesh(new THREE.PlaneGeometry(700, 1.8), cyanMat);
+    ew.rotation.x = -Math.PI / 2;
+    ew.position.set(0, 0.09, i - 5.4);
+    scene.add(ew);
+
+    const ns = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 700), magentaMat);
+    ns.rotation.x = -Math.PI / 2;
+    ns.position.set(i + 5.4, 0.1, 0);
+    scene.add(ns);
+  }
+
+  for (let x = -240; x <= 240; x += 120) {
+    for (let z = -240; z <= 240; z += 120) {
+      const color = ((x + z) / 120) % 2 === 0 ? 0x26f5ff : 0xff3ff2;
+      const light = new THREE.PointLight(color, 2.0, 115, 1.8);
+      light.position.set(x, 12, z);
+      scene.add(light);
+
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(2.2, 12, 8),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.65 })
+      );
+      glow.position.copy(light.position);
+      scene.add(glow);
+    }
+  }
+}
+
+function addOilTanks(scene, buildings) {
+  const tankCount = 3 + Math.floor(Math.random() * 2);
+  const tankMat = new THREE.MeshStandardMaterial({
+    color: 0xb9bec7,
+    metalness: 0.45,
+    roughness: 0.42,
+    emissive: 0x331100,
+    emissiveIntensity: 0.08,
+  });
+
+  for (let i = 0; i < tankCount; i++) {
+    let pos = null;
+    for (let tries = 0; tries < 60; tries++) {
+      const candidate = new THREE.Vector3(
+        -260 + Math.random() * 520,
+        0,
+        -260 + Math.random() * 520
+      );
+      if (Math.abs(candidate.x) < 95 && Math.abs(candidate.z) < 95) continue;
+      const tooClose = buildings.some(b => {
+        const pad = b.userData.isOilTank ? 44 : 28;
+        return Math.abs(candidate.x - b.position.x) < b.userData.w / 2 + pad &&
+               Math.abs(candidate.z - b.position.z) < b.userData.d / 2 + pad;
+      });
+      if (!tooClose) {
+        pos = candidate;
+        break;
+      }
+    }
+    if (!pos) continue;
+
+    const radius = 13 + Math.random() * 4;
+    const height = 28 + Math.random() * 10;
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 32), tankMat.clone());
+    tank.position.set(pos.x, height / 2, pos.z);
+    tank.castShadow = true;
+    tank.receiveShadow = true;
+    tank.userData = {
+      w: radius * 2,
+      h: height,
+      d: radius * 2,
+      fallen: false,
+      fallSpeed: 0,
+      baseY: height / 2,
+      stackIndex: 0,
+      stackTotal: 1,
+      isOilTank: true,
+      exploded: false,
+    };
+    scene.add(tank);
+    buildings.push(tank);
+  }
+}
+
 export function createWorld() {
   const scene = new THREE.Scene();
+  const lighting = pickLightingPreset();
+  scene.userData.lightingPreset = lighting.name;
+  scene.userData.lightingExposure = lighting.exposure;
 
-  // Sunset sky + atmospheric fog
-  scene.background = new THREE.Color(0xff7755);
-  scene.fog = new THREE.Fog(0xff8866, 280, 950);
+  // Sky + atmospheric fog
+  scene.background = new THREE.Color(lighting.background);
+  scene.fog = new THREE.Fog(lighting.fog, lighting.fogNear, lighting.fogFar);
 
   // Lights
-  const hemi = new THREE.HemisphereLight(0xff9966, 0x223344, 0.7);
+  const hemi = new THREE.HemisphereLight(lighting.hemiSky, lighting.hemiGround, lighting.hemiIntensity);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xffe0bb, 2.2);
-  sun.position.set(160, 260, 90);
+  const sun = new THREE.DirectionalLight(lighting.sunColor, lighting.sunIntensity);
+  sun.position.set(...lighting.sunPosition);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
@@ -170,9 +369,10 @@ export function createWorld() {
   scene.add(sun);
 
   // Rim light (cool back-fill for tokusatsu look)
-  const rim = new THREE.DirectionalLight(0x6688ff, 0.35);
+  const rim = new THREE.DirectionalLight(lighting.rimColor, lighting.rimIntensity);
   rim.position.set(-200, 150, -150);
   scene.add(rim);
+  if (lighting.stars) addNightStars(scene);
 
   // Sea — large animated plane around the city
   const waterTex = makeWaterTexture();
@@ -180,7 +380,7 @@ export function createWorld() {
   const sea = new THREE.Mesh(
     new THREE.PlaneGeometry(6000, 6000),
     new THREE.MeshStandardMaterial({
-      map: waterTex, color: 0x4a86b8,
+      map: waterTex, color: lighting.waterColor,
       roughness: 0.25, metalness: 0.55,
     })
   );
@@ -193,14 +393,14 @@ export function createWorld() {
   // City island ground — covers the buildable area + a small beach margin.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(720, 720),
-    new THREE.MeshStandardMaterial({ color: 0x484440, roughness: 0.95 })
+    new THREE.MeshStandardMaterial({ color: lighting.groundColor, roughness: 0.95 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
 
   // Roads (subtle grid)
-  const roadMat = new THREE.MeshStandardMaterial({ color: 0x1c1c20, roughness: 1 });
+  const roadMat = new THREE.MeshStandardMaterial({ color: lighting.roadColor, roughness: 1 });
   for (let i = -300; i <= 300; i += 60) {
     const ew = new THREE.Mesh(new THREE.PlaneGeometry(700, 10), roadMat);
     ew.rotation.x = -Math.PI / 2;
@@ -214,6 +414,7 @@ export function createWorld() {
     ns.receiveShadow = true;
     scene.add(ns);
   }
+  if (lighting.neonStreets) addNeonStreets(scene);
 
   // ---------- Buildings — simple solid colours, leave the centre clear ----------
   const buildings = [];
@@ -228,17 +429,39 @@ export function createWorld() {
         const ox = (Math.random() - 0.5) * (44 - w);
         const oz = (Math.random() - 0.5) * (44 - d);
 
-        const hue = 200 + Math.random() * 40;
-        const sat = 0.10 + Math.random() * 0.15;
-        const lit = 0.32 + Math.random() * 0.22;
-        const col = new THREE.Color().setHSL(hue / 360, sat, lit);
-        const mat = new THREE.MeshStandardMaterial({
+        let col;
+        if (lighting.name === 'night') {
+          const neonPalette = [
+            0x26f5ff, 0xff3ff2, 0x7cff6b, 0xffd84d,
+            0x6d8cff, 0xff7a3d, 0x45ffd0, 0xd86bff,
+          ];
+          col = new THREE.Color(neonPalette[Math.floor(Math.random() * neonPalette.length)]);
+          col.lerp(new THREE.Color(0xffffff), 0.18 + Math.random() * 0.12);
+        } else {
+          const hue = 200 + Math.random() * 40;
+          const sat = 0.10 + Math.random() * 0.15;
+          const lit = 0.32 + Math.random() * 0.22;
+          col = new THREE.Color().setHSL(hue / 360, sat, lit);
+        }
+        const matParams = {
           color: col,
           roughness: 0.75,
           metalness: 0.1,
           emissive: 0xffaa55,
-          emissiveIntensity: 0.04 + Math.random() * 0.06,
-        });
+          emissiveIntensity: (lighting.buildingLight + Math.random() * lighting.buildingLightVariance) * lighting.buildingLitBoost,
+        };
+        if (lighting.useBuildingTextures) {
+          const facadeRoll = Math.random();
+          const facade = totalH > 36 && facadeRoll < 0.55
+            ? makeGlassTexture(6, 12)
+            : (totalH > 24 && facadeRoll < 0.8 ? makeConcreteTexture() : makeBrickTexture());
+          const verticalRepeat = Math.max(1, Math.round(totalH / 26));
+          facade.map.repeat.set(1, verticalRepeat);
+          facade.emissive.repeat.set(1, verticalRepeat);
+          matParams.map = facade.map;
+          matParams.emissiveMap = facade.emissive;
+        }
+        const mat = new THREE.MeshStandardMaterial(matParams);
 
         const stackable = totalH > 22 && Math.random() < 0.4;
         const blocks = stackable ? 2 + Math.floor(Math.random() * 3) : 1;
@@ -261,6 +484,7 @@ export function createWorld() {
       }
     }
   }
+  addOilTanks(scene, buildings);
 
   return { scene, buildings };
 }

@@ -31,6 +31,10 @@ export class Effects {
     this.active.push(new Impact(this.scene, position, 0x886644, 14, 12));
   }
 
+  spawnExplosion(position, radius = 70) {
+    this.active.push(new Explosion(this.scene, position, radius));
+  }
+
   update(dt) {
     for (let i = this.active.length - 1; i >= 0; i--) {
       if (!this.active[i].update(dt)) {
@@ -219,6 +223,97 @@ class Impact {
   dispose() {
     this.scene.remove(this.group);
     this.scene.remove(this.flash);
+    for (const p of this.bits) {
+      p.geometry.dispose();
+      p.material.dispose();
+    }
+  }
+}
+
+class Explosion {
+  constructor(scene, position, radius = 70) {
+    this.scene = scene;
+    this.duration = 0.9;
+    this.elapsed = 0;
+    this.radius = radius;
+
+    this.group = new THREE.Group();
+    this.group.position.copy(position);
+
+    const coreGeo = new THREE.SphereGeometry(1, 24, 16);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xffdd66,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.core = new THREE.Mesh(coreGeo, coreMat);
+    this.group.add(this.core);
+
+    const smokeGeo = new THREE.SphereGeometry(1, 18, 12);
+    const smokeMat = new THREE.MeshBasicMaterial({
+      color: 0x3a2a22,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    });
+    this.smoke = new THREE.Mesh(smokeGeo, smokeMat);
+    this.group.add(this.smoke);
+
+    this.bits = [];
+    for (let i = 0; i < 42; i++) {
+      const geo = new THREE.SphereGeometry(0.5 + Math.random() * 0.9, 5, 5);
+      const mat = new THREE.MeshBasicMaterial({
+        color: Math.random() < 0.55 ? 0xff8a22 : 0xffdd66,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+      });
+      const p = new THREE.Mesh(geo, mat);
+      const v = new THREE.Vector3(
+        (Math.random() - 0.5),
+        Math.random() * 0.7 + 0.2,
+        (Math.random() - 0.5)
+      ).normalize().multiplyScalar(42 + Math.random() * 52);
+      p.userData.v = v;
+      this.group.add(p);
+      this.bits.push(p);
+    }
+
+    scene.add(this.group);
+    this.flash = new THREE.PointLight(0xff7722, 12, radius * 2.6, 1.4);
+    this.flash.position.copy(position);
+    scene.add(this.flash);
+  }
+
+  update(dt) {
+    this.elapsed += dt;
+    const t = this.elapsed / this.duration;
+    if (t >= 1) return false;
+    const blast = 1 - t;
+    this.core.scale.setScalar(this.radius * 0.24 * (0.2 + t));
+    this.core.material.opacity = 0.95 * blast;
+    this.smoke.scale.setScalar(this.radius * 0.35 * (0.4 + t));
+    this.smoke.position.y += dt * 14;
+    this.smoke.material.opacity = 0.45 * blast;
+    for (const p of this.bits) {
+      p.position.x += p.userData.v.x * dt;
+      p.position.y += p.userData.v.y * dt;
+      p.position.z += p.userData.v.z * dt;
+      p.userData.v.y -= 65 * dt;
+      p.material.opacity = blast;
+    }
+    this.flash.intensity = 12 * blast;
+    return true;
+  }
+
+  dispose() {
+    this.scene.remove(this.group);
+    this.scene.remove(this.flash);
+    this.core.geometry.dispose();
+    this.core.material.dispose();
+    this.smoke.geometry.dispose();
+    this.smoke.material.dispose();
     for (const p of this.bits) {
       p.geometry.dispose();
       p.material.dispose();
