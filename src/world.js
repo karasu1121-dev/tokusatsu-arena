@@ -214,6 +214,8 @@ const LIGHTING_PRESETS = [
     stars: true,
     useBuildingTextures: false,
     neonStreets: true,
+    buildingDoubleChance: 0.25,
+    buildingShadows: false,
   },
 ];
 
@@ -273,15 +275,17 @@ function addNeonStreets(scene) {
   for (let x = -240; x <= 240; x += 120) {
     for (let z = -240; z <= 240; z += 120) {
       const color = ((x + z) / 120) % 2 === 0 ? 0x26f5ff : 0xff3ff2;
-      const light = new THREE.PointLight(color, 2.0, 115, 1.8);
-      light.position.set(x, 12, z);
-      scene.add(light);
-
       const glow = new THREE.Mesh(
-        new THREE.SphereGeometry(2.2, 12, 8),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.65 })
+        new THREE.SphereGeometry(2.6, 8, 6),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.7,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        })
       );
-      glow.position.copy(light.position);
+      glow.position.set(x, 8, z);
       scene.add(glow);
     }
   }
@@ -345,8 +349,8 @@ function addOilTanks(scene, buildings) {
     clearYard(pos, radius + 18);
     const tank = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 32), tankMat.clone());
     tank.position.set(pos.x, height / 2, pos.z);
-    tank.castShadow = true;
-    tank.receiveShadow = true;
+    tank.castShadow = scene.userData.lightingPreset !== 'night';
+    tank.receiveShadow = scene.userData.lightingPreset !== 'night';
     tank.userData = {
       w: radius * 2,
       h: height,
@@ -380,7 +384,7 @@ export function createWorld() {
 
   const sun = new THREE.DirectionalLight(lighting.sunColor, lighting.sunIntensity);
   sun.position.set(...lighting.sunPosition);
-  sun.castShadow = true;
+  sun.castShadow = lighting.name !== 'night';
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 900;
@@ -409,7 +413,7 @@ export function createWorld() {
   );
   sea.rotation.x = -Math.PI / 2;
   sea.position.y = -0.4;        // slightly below the city ground = looks like the city is on a small island
-  sea.receiveShadow = true;
+  sea.receiveShadow = lighting.name !== 'night';
   scene.add(sea);
   scene.userData.seaTexture = waterTex;     // hook for main.js to scroll UV each frame
 
@@ -419,7 +423,7 @@ export function createWorld() {
     new THREE.MeshStandardMaterial({ color: lighting.groundColor, roughness: 0.95 })
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
+  ground.receiveShadow = lighting.name !== 'night';
   scene.add(ground);
 
   // Roads (subtle grid)
@@ -428,13 +432,13 @@ export function createWorld() {
     const ew = new THREE.Mesh(new THREE.PlaneGeometry(700, 10), roadMat);
     ew.rotation.x = -Math.PI / 2;
     ew.position.set(0, 0.05, i);
-    ew.receiveShadow = true;
+    ew.receiveShadow = lighting.name !== 'night';
     scene.add(ew);
 
     const ns = new THREE.Mesh(new THREE.PlaneGeometry(10, 700), roadMat);
     ns.rotation.x = -Math.PI / 2;
     ns.position.set(i, 0.05, 0);
-    ns.receiveShadow = true;
+    ns.receiveShadow = lighting.name !== 'night';
     scene.add(ns);
   }
   if (lighting.neonStreets) addNeonStreets(scene);
@@ -444,7 +448,8 @@ export function createWorld() {
   for (let bx = -270; bx <= 270; bx += 60) {
     for (let bz = -270; bz <= 270; bz += 60) {
       if (Math.abs(bx) < 80 && Math.abs(bz) < 80) continue;
-      const count = Math.random() < 0.55 ? 2 : 1;
+      const doubleChance = lighting.buildingDoubleChance ?? 0.55;
+      const count = Math.random() < doubleChance ? 2 : 1;
       for (let i = 0; i < count; i++) {
         const w = 12 + Math.random() * 14;
         const d = 12 + Math.random() * 14;
@@ -497,8 +502,8 @@ export function createWorld() {
         for (let s = 0; s < blocks; s++) {
           const b = new THREE.Mesh(new THREE.BoxGeometry(w, blockH, d), mat);
           b.position.set(bx + ox, curY + blockH / 2, bz + oz);
-          b.castShadow = true;
-          b.receiveShadow = true;
+          b.castShadow = lighting.buildingShadows !== false;
+          b.receiveShadow = lighting.buildingShadows !== false;
           b.userData = {
             w, h: blockH, d,
             fallen: false, fallSpeed: 0, baseY: curY + blockH / 2,
