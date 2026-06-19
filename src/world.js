@@ -523,6 +523,287 @@ export function createWorld() {
   return { scene, buildings };
 }
 
+// ===========================================================================
+// LEVEL 2 — Gunkanjima (Battleship Island) factory.
+// A small, dense concrete island bristling with pipes, smokestacks and molten
+// blast furnaces, ringed by a sea wall. Same destructible-`buildings` contract
+// as the city so combat/collision/physics all keep working.
+// ===========================================================================
+
+// Weathered grey concrete — Gunkanjima's derelict apartment blocks.
+function makeFactoryConcreteTexture() {
+  const size = 256;
+  const c = makeCanvas(size), ctx = c.getContext('2d');
+  ctx.fillStyle = '#52504b'; ctx.fillRect(0, 0, size, size);
+  // Grime + stain noise
+  const img = ctx.getImageData(0, 0, size, size);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 46;
+    img.data[i]   = Math.max(0, Math.min(255, img.data[i]   + n));
+    img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + n));
+    img.data[i+2] = Math.max(0, Math.min(255, img.data[i+2] + n));
+  }
+  ctx.putImageData(img, 0, 0);
+  // Rust streaks
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * size;
+    ctx.strokeStyle = `rgba(${120 + Math.random() * 60},${50 + Math.random() * 30},20,${0.10 + Math.random() * 0.18})`;
+    ctx.lineWidth = 1 + Math.random() * 3;
+    ctx.beginPath();
+    ctx.moveTo(x, Math.random() * 40);
+    ctx.lineTo(x + (Math.random() - 0.5) * 10, size);
+    ctx.stroke();
+  }
+  // Grid of dark broken windows
+  const cols = 6, rows = 8, cw = size / cols, rh = size / rows;
+  for (let r = 0; r < rows; r++) {
+    for (let col = 0; col < cols; col++) {
+      if (Math.random() < 0.25) continue;     // collapsed / bricked-up
+      ctx.fillStyle = Math.random() < 0.12 ? '#3a2a18' : '#15161a';
+      ctx.fillRect(col * cw + 4, r * rh + 4, cw - 8, rh - 8);
+    }
+  }
+  const map = new THREE.CanvasTexture(c);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  return map;
+}
+
+// A run of industrial piping between two ground points, lifted on stub legs.
+function addPipeRun(scene, x1, z1, x2, z2, y, radius, mat) {
+  const a = new THREE.Vector3(x1, y, z1);
+  const b = new THREE.Vector3(x2, y, z2);
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = dir.length();
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 12), mat);
+  pipe.position.copy(a).lerp(b, 0.5);
+  pipe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  pipe.castShadow = true;
+  scene.add(pipe);
+  // Support legs
+  const legMat = mat;
+  const legs = Math.max(2, Math.floor(len / 34));
+  for (let i = 0; i <= legs; i++) {
+    const p = a.clone().lerp(b, i / legs);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, y, 8), legMat);
+    leg.position.set(p.x, y / 2, p.z);
+    scene.add(leg);
+  }
+  // Flange collars at each end
+  for (const p of [a, b]) {
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(radius * 1.3, radius * 1.3, 1.4, 12), legMat);
+    collar.position.copy(p);
+    collar.quaternion.copy(pipe.quaternion);
+    scene.add(collar);
+  }
+}
+
+// A glowing blast furnace — destructible (added to `buildings`).
+function addBlastFurnace(scene, buildings, x, z) {
+  const ironMat = new THREE.MeshStandardMaterial({ color: 0x44403c, metalness: 0.55, roughness: 0.6 });
+  const moltenMat = new THREE.MeshStandardMaterial({
+    color: 0xff5a1a, emissive: 0xff5a1a, emissiveIntensity: 2.0, roughness: 0.4,
+  });
+  const radius = 13, height = 64;
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+
+  // Tapered furnace body
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.62, radius, height, 20), ironMat);
+  body.position.y = height / 2;
+  body.castShadow = true; body.receiveShadow = true;
+  group.add(body);
+  // Riveted bands
+  for (let i = 1; i <= 3; i++) {
+    const band = new THREE.Mesh(new THREE.TorusGeometry(radius * (1 - i * 0.07) + 0.4, 0.8, 8, 24), ironMat);
+    band.position.y = (height / 4) * i;
+    band.rotation.x = Math.PI / 2;
+    group.add(band);
+  }
+  // Molten crucible glow at the mouth
+  const glow = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.6, radius * 0.55, 4, 20), moltenMat);
+  glow.position.y = height + 1;
+  group.add(glow);
+  // Molten tap stream near the base
+  const tap = new THREE.Mesh(new THREE.BoxGeometry(2.2, 10, 2.2), moltenMat);
+  tap.position.set(radius * 0.7, 6, 0);
+  group.add(tap);
+  const furnaceLight = new THREE.PointLight(0xff5a1a, 2.4, 150, 1.5);
+  furnaceLight.position.y = height + 4;
+  group.add(furnaceLight);
+
+  scene.add(group);
+  group.userData = {
+    w: radius * 2, h: height, d: radius * 2,
+    fallen: false, fallSpeed: 0, baseY: height / 2,
+    stackIndex: 0, stackTotal: 1,
+    isNightBuilding: false, nightColor: null,
+    isFurnace: true,
+  };
+  buildings.push(group);
+}
+
+export function createFactoryWorld() {
+  const scene = new THREE.Scene();
+  scene.userData.lightingPreset = 'factory';
+  scene.userData.lightingExposure = 1.15;
+
+  // Smoggy industrial dusk
+  scene.background = new THREE.Color(0x6a5746);
+  scene.fog = new THREE.Fog(0x6a5746, 220, 980);
+
+  const hemi = new THREE.HemisphereLight(0x9a8468, 0x241d16, 0.75);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffd2a0, 1.7);
+  sun.position.set(150, 250, -90);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 900;
+  sun.shadow.camera.left = -380; sun.shadow.camera.right = 380;
+  sun.shadow.camera.top = 380; sun.shadow.camera.bottom = -380;
+  sun.shadow.bias = -0.0004;
+  scene.add(sun);
+  // Warm furnace-glow rim from below the horizon
+  const rim = new THREE.DirectionalLight(0xff6a22, 0.6);
+  rim.position.set(-180, 90, -150);
+  scene.add(rim);
+
+  // Sea — murky industrial water
+  const waterTex = makeWaterTexture();
+  waterTex.repeat.set(40, 40);
+  const sea = new THREE.Mesh(
+    new THREE.PlaneGeometry(6000, 6000),
+    new THREE.MeshStandardMaterial({ map: waterTex, color: 0x35424a, roughness: 0.3, metalness: 0.5 })
+  );
+  sea.rotation.x = -Math.PI / 2;
+  sea.position.y = -0.4;
+  sea.receiveShadow = true;
+  scene.add(sea);
+  scene.userData.seaTexture = waterTex;
+
+  // Concrete island deck
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(720, 720),
+    new THREE.MeshStandardMaterial({ color: 0x35332e, roughness: 0.98 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Sea wall ring (Gunkanjima's signature retaining wall)
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x2c2a26, roughness: 0.95 });
+  const wallR = 330, wallSeg = 40;
+  for (let i = 0; i < wallSeg; i++) {
+    const a = (i / wallSeg) * Math.PI * 2;
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(56, 16, 12), wallMat);
+    seg.position.set(Math.sin(a) * wallR, 7, Math.cos(a) * wallR);
+    seg.rotation.y = -a;
+    seg.castShadow = true; seg.receiveShadow = true;
+    scene.add(seg);
+  }
+
+  // Grime grid lines on the deck
+  const seamMat = new THREE.MeshStandardMaterial({ color: 0x222019, roughness: 1 });
+  for (let i = -300; i <= 300; i += 60) {
+    const ew = new THREE.Mesh(new THREE.PlaneGeometry(640, 4), seamMat);
+    ew.rotation.x = -Math.PI / 2; ew.position.set(0, 0.04, i); ew.receiveShadow = true; scene.add(ew);
+    const ns = new THREE.Mesh(new THREE.PlaneGeometry(4, 640), seamMat);
+    ns.rotation.x = -Math.PI / 2; ns.position.set(i, 0.04, 0); ns.receiveShadow = true; scene.add(ns);
+  }
+
+  // ---------- Derelict concrete apartment blocks (destructible) ----------
+  const buildings = [];
+  const concreteTex = makeFactoryConcreteTexture();
+  for (let bx = -270; bx <= 270; bx += 54) {
+    for (let bz = -270; bz <= 270; bz += 54) {
+      if (Math.abs(bx) < 70 && Math.abs(bz) < 70) continue;     // clear arena centre
+      const count = Math.random() < 0.5 ? 2 : 1;
+      for (let i = 0; i < count; i++) {
+        const w = 13 + Math.random() * 12;
+        const d = 13 + Math.random() * 12;
+        const totalH = 18 + Math.random() * 46;
+        const ox = (Math.random() - 0.5) * (40 - w);
+        const oz = (Math.random() - 0.5) * (40 - d);
+
+        const shade = 0.28 + Math.random() * 0.18;
+        const col = new THREE.Color().setHSL(0.09, 0.06, shade);
+        const tex = concreteTex.clone();
+        tex.needsUpdate = true;
+        const verticalRepeat = Math.max(1, Math.round(totalH / 24));
+        tex.repeat.set(1, verticalRepeat);
+        const mat = new THREE.MeshStandardMaterial({
+          color: col, map: tex, roughness: 0.92, metalness: 0.08,
+        });
+
+        const stackable = totalH > 26 && Math.random() < 0.45;
+        const blocks = stackable ? 2 + Math.floor(Math.random() * 2) : 1;
+        const blockH = totalH / blocks;
+        let curY = 0;
+        for (let s = 0; s < blocks; s++) {
+          const b = new THREE.Mesh(new THREE.BoxGeometry(w, blockH, d), mat);
+          b.position.set(bx + ox, curY + blockH / 2, bz + oz);
+          b.castShadow = true; b.receiveShadow = true;
+          b.userData = {
+            w, h: blockH, d,
+            fallen: false, fallSpeed: 0, baseY: curY + blockH / 2,
+            stackIndex: s, stackTotal: blocks,
+            isNightBuilding: false, nightColor: null,
+          };
+          scene.add(b);
+          buildings.push(b);
+          curY += blockH;
+        }
+      }
+    }
+  }
+
+  // ---------- Blast furnaces (destructible, glowing) ----------
+  const furnaceSpots = [[-200, -160], [190, -180], [-180, 190], [200, 170], [0, -240]];
+  for (const [fx, fz] of furnaceSpots) addBlastFurnace(scene, buildings, fx, fz);
+
+  // ---------- Smokestacks (tall decorative silhouettes) ----------
+  const stackMat = new THREE.MeshStandardMaterial({ color: 0x3a3631, metalness: 0.4, roughness: 0.7 });
+  const bandMat  = new THREE.MeshStandardMaterial({ color: 0x7a2418, roughness: 0.7 });
+  for (const [sx, sz, h] of [[-250, -250, 120], [250, -240, 100], [-240, 250, 110], [255, 245, 130], [120, -290, 95]]) {
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(4, 6, h, 14), stackMat);
+    stack.position.set(sx, h / 2, sz);
+    stack.castShadow = true;
+    scene.add(stack);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(4.3, 4.3, 8, 14), bandMat);
+    band.position.set(sx, h - 12, sz);
+    scene.add(band);
+  }
+
+  // ---------- Pipe network (the island's tangle of 管線) ----------
+  const pipeMat = new THREE.MeshStandardMaterial({ color: 0x6b6258, metalness: 0.6, roughness: 0.5 });
+  const rustPipeMat = new THREE.MeshStandardMaterial({ color: 0x7a4a30, metalness: 0.5, roughness: 0.6 });
+  addPipeRun(scene, -200, -160, 190, -180, 14, 2.6, pipeMat);
+  addPipeRun(scene, 190, -180, 200, 170, 18, 2.2, rustPipeMat);
+  addPipeRun(scene, 200, 170, -180, 190, 12, 2.8, pipeMat);
+  addPipeRun(scene, -180, 190, -200, -160, 16, 2.4, rustPipeMat);
+  addPipeRun(scene, -200, -160, 0, -240, 10, 2.0, pipeMat);
+  addPipeRun(scene, 0, -240, 190, -180, 22, 2.0, rustPipeMat);
+  addPipeRun(scene, -120, 90, 120, 90, 8, 1.8, pipeMat);
+  addPipeRun(scene, -100, -90, -100, 120, 9, 1.8, rustPipeMat);
+
+  // ---------- Molten pools near the furnaces ----------
+  const poolMat = new THREE.MeshStandardMaterial({
+    color: 0xff5a1a, emissive: 0xff5a1a, emissiveIntensity: 1.4, roughness: 0.5,
+  });
+  for (const [fx, fz] of furnaceSpots) {
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(10 + Math.random() * 6, 18), poolMat);
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.set(fx + (Math.random() - 0.5) * 20, 0.12, fz + 18 + (Math.random() - 0.5) * 10);
+    scene.add(pool);
+  }
+
+  // Explosive storage tanks (reuse the city's oil-tank scatter)
+  addOilTanks(scene, buildings);
+
+  return { scene, buildings };
+}
+
 // Animate the sea — scroll its texture UV offset for shimmer.
 export function animateSea(scene, dt) {
   const tex = scene.userData.seaTexture;

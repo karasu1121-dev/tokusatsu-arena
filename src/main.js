@@ -3,7 +3,8 @@ import { Ultraman } from './player.js';
 import { ModelUltraman, loadModel } from './player_model.js';
 import { loadMixamoClip } from './anim_retarget.js';
 import { Kaiju } from './enemy.js';
-import { createWorld, updateBuildings, settleStacks, physicsBuildings, animateSea } from './world.js';
+import { SlagCrab } from './enemy2.js';
+import { createWorld, createFactoryWorld, updateBuildings, settleStacks, physicsBuildings, animateSea } from './world.js';
 import { Effects } from './effects.js';
 import { HUD } from './hud.js';
 import { SoundManager } from './audio.js';
@@ -64,18 +65,24 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 document.getElementById('app').appendChild(renderer.domElement);
 
-// ----- World -----
-const { scene, buildings } = createWorld();
-renderer.toneMappingExposure = scene.userData.lightingExposure || renderer.toneMappingExposure;
-
 // ----- Camera -----
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.5, 3500);
 camera.position.set(0, 90, 180);
 
-// ----- Entities (procedural fallback first; swap if model loads) -----
-let ultraman = new Ultraman();
-ultraman.group.position.set(-65, 0, 55);
-scene.add(ultraman.group);
+// ----- Level-independent systems -----
+const hud = new HUD();
+const sfx = new SoundManager();
+
+// ----- Level state (filled in by initLevel when the player picks a stage) -----
+let scene, buildings, ultraman, kaiju, effects;
+let currentLevel = 1;
+const enemyProjectiles = [];     // molten bolts lobbed by the Level 2 monster
+
+// Per-level presentation: enemy name + integrity label.
+const LEVEL_META = {
+  1: { enemy: 'KAIJU 怪獸',        integrity: '城市完整度' },
+  2: { enemy: 'SLAG CRAB 熔爐巨蟹', integrity: '工廠完整度' },
+};
 
 function randomKaijuStart(playerPosition, buildings) {
   const minDist = 115;
@@ -106,41 +113,6 @@ function randomKaijuStart(playerPosition, buildings) {
   return new THREE.Vector3(Math.sin(fallbackAngle) * 150, 0, Math.cos(fallbackAngle) * 150);
 }
 
-const kaiju = new Kaiju();
-kaiju.group.position.copy(randomKaijuStart(ultraman.group.position, buildings));
-kaiju.facing = Math.random() * Math.PI * 2;
-kaiju.group.rotation.y = kaiju.facing;
-scene.add(kaiju.group);
-
-// Let the hero begin generally aware of the threat without giving the kaiju
-// perfect opening alignment.
-{
-  const dx = kaiju.group.position.x - ultraman.group.position.x;
-  const dz = kaiju.group.position.z - ultraman.group.position.z;
-  ultraman.facing = Math.atan2(dx, dz);
-  ultraman.group.rotation.y = ultraman.facing;
-}
-
-// ----- Systems -----
-const effects = new Effects(scene);
-const hud = new HUD();
-hud.setCityTotal(buildings.length);
-const sfx = new SoundManager();
-
-// dev hook — lets the console inspect/poke entities
-if (typeof window !== 'undefined') window.__game = {
-  get ultraman() { return ultraman; }, kaiju, effects, buildings,
-  THREE,
-  destroyBuildingsOnBeam: (...a) => destroyBuildingsOnBeam(...a),
-  collideWithBuildings:   (...a) => collideWithBuildings(...a),
-};
-
-// ----- Async model swap -----
-const modelStatus = document.createElement('div');
-modelStatus.style.cssText = 'position:fixed;right:16px;top:60px;color:#fff;font-size:11px;opacity:0.6;text-shadow:0 1px 2px #000;pointer-events:none';
-document.body.appendChild(modelStatus);
-modelStatus.textContent = MODEL_URL ? '載入 3D 模型中…' : '使用程序角色';
-
 // Mixamo FBX animations layered onto the rig. With a Mixamo-native skeleton
 // (Y Bot) these retarget cleanly because rest poses match.
 const MIXAMO_CLIPS = {
@@ -154,7 +126,14 @@ const MIXAMO_CLIPS = {
   death: { url: './assets/Death From Front Headshot.fbx', loop: false, fitDuration: 2.0 },
 };
 
-if (MODEL_URL) {
+// ----- Async model swap — replaces the procedural hero with the rigged GLB -----
+function swapInHeroModel() {
+  if (!MODEL_URL) return;
+  const modelStatus = document.createElement('div');
+  modelStatus.style.cssText = 'position:fixed;right:16px;top:60px;color:#fff;font-size:11px;opacity:0.6;text-shadow:0 1px 2px #000;pointer-events:none';
+  document.body.appendChild(modelStatus);
+  modelStatus.textContent = '載入 3D 模型中…';
+
   loadModel(MODEL_URL)
     .then(async gltf => {
       const scaleOverride = (settings.modelScales || {})[MODEL_URL];
@@ -173,13 +152,9 @@ if (MODEL_URL) {
       for (const [state, opts] of Object.entries(MIXAMO_CLIPS)) {
         try {
           const clip = await loadMixamoClip(opts.url, m.model);
-          // Stretch clip time scale so it fits the game state's duration
           const finalOpts = { ...opts };
-          if (opts.fitDuration) {
-            finalOpts.timeScale = clip.duration / opts.fitDuration;
-          }
+          if (opts.fitDuration) finalOpts.timeScale = clip.duration / opts.fitDuration;
           m.addMixamoClip(state, clip, finalOpts);
-          // Lengthen the game-side timer so the player actually sees the anim
           if (state === 'punch' && opts.fitDuration) m.punchDuration = opts.fitDuration;
           if (state === 'kick'  && opts.fitDuration) m.kickDuration  = opts.fitDuration;
           loaded.push(`${state}(${clip.duration.toFixed(1)}s)`);
@@ -187,16 +162,68 @@ if (MODEL_URL) {
           console.warn(`Mixamo clip ${opts.url} load failed:`, err.message);
         }
       }
-      if (loaded.length) {
-        modelStatus.textContent += `  +Mixamo: ${loaded.join(', ')}`;
-      }
+      if (loaded.length) modelStatus.textContent += `  +Mixamo: ${loaded.join(', ')}`;
       setTimeout(() => modelStatus.remove(), 4500);
+      applyColorTimerVisibility();
     })
     .catch(err => {
       console.warn('模型載入失敗，沿用程序角色:', err.message);
       modelStatus.textContent = '⚠ 模型載入失敗 — 使用程序角色';
       setTimeout(() => modelStatus.remove(), 4000);
     });
+}
+
+// Relabel the HUD (enemy name + integrity caption) for the active stage.
+function applyLevelHud(level) {
+  const meta = LEVEL_META[level] || LEVEL_META[1];
+  const enemyName = document.getElementById('enemy-name');
+  const integrityLabel = document.getElementById('integrity-label');
+  if (enemyName) enemyName.textContent = meta.enemy;
+  if (integrityLabel) integrityLabel.textContent = meta.integrity;
+}
+
+// Build the chosen stage: world geometry, hero, monster, effects + HUD wiring.
+function initLevel(level) {
+  currentLevel = level;
+  const world = level === 2 ? createFactoryWorld() : createWorld();
+  scene = world.scene;
+  buildings = world.buildings;
+  renderer.toneMappingExposure = scene.userData.lightingExposure || renderer.toneMappingExposure;
+
+  ultraman = new Ultraman();
+  ultraman.group.position.set(-65, 0, 55);
+  scene.add(ultraman.group);
+
+  kaiju = level === 2 ? new SlagCrab() : new Kaiju();
+  kaiju.group.position.copy(randomKaijuStart(ultraman.group.position, buildings));
+  kaiju.facing = Math.random() * Math.PI * 2;
+  kaiju.group.rotation.y = kaiju.facing;
+  scene.add(kaiju.group);
+
+  // Hero begins generally aware of the threat (no perfect opening alignment).
+  {
+    const dx = kaiju.group.position.x - ultraman.group.position.x;
+    const dz = kaiju.group.position.z - ultraman.group.position.z;
+    ultraman.facing = Math.atan2(dx, dz);
+    ultraman.group.rotation.y = ultraman.facing;
+  }
+
+  effects = new Effects(scene);
+  hud.setCityTotal(buildings.length);
+  applyLevelHud(level);
+
+  // dev hook — lets the console inspect/poke entities
+  if (typeof window !== 'undefined') window.__game = {
+    get ultraman() { return ultraman; },
+    get kaiju() { return kaiju; },
+    get effects() { return effects; },
+    get buildings() { return buildings; },
+    THREE,
+    destroyBuildingsOnBeam: (...a) => destroyBuildingsOnBeam(...a),
+    collideWithBuildings:   (...a) => collideWithBuildings(...a),
+  };
+
+  swapInHeroModel();
 }
 
 // ----- Input -----
@@ -613,11 +640,17 @@ addEventListener('mousemove', e => {
   cameraPitch = Math.max(-1.0, Math.min(0.6, cameraPitch));
 });
 
-document.getElementById('start-btn').addEventListener('click', () => {
+function beginGame(level) {
+  if (gameStarted) return;
+  initLevel(level);
   document.getElementById('start-screen').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
   gameStarted = true;
   sfx.unlock();      // first user gesture — needed for Web Audio
+  applyColorTimerVisibility();
+}
+document.querySelectorAll('.level-btn').forEach(btn => {
+  btn.addEventListener('click', () => beginGame(parseInt(btn.dataset.level, 10) || 1));
 });
 
 function showMessage(text, sub, color, withRetry = false) {
@@ -993,6 +1026,90 @@ function firstBuildingHit(origin, target) {
   return best;
 }
 
+// ----- Level 2 monster: travelling molten bolts -----
+function spawnMoltenBolt(origin, dir) {
+  if (enemyProjectiles.length > 24) return;
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(2.4, 12, 10),
+    new THREE.MeshBasicMaterial({ color: 0xffb24a })
+  );
+  mesh.position.copy(origin);
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(4.0, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xff5512, transparent: true, opacity: 0.5,
+      blending: THREE.AdditiveBlending, depthWrite: false })
+  );
+  mesh.add(glow);
+  const light = new THREE.PointLight(0xff6622, 3, 70, 1.6);
+  mesh.add(light);
+  scene.add(mesh);
+  const vel = dir.clone().normalize().multiplyScalar(98);
+  vel.y += 16;          // slight upward arc
+  enemyProjectiles.push({ mesh, vel, life: 4 });
+}
+
+function detonateBolt(p) {
+  effects.spawnExplosion(p.mesh.position.clone(), 32);
+  sfx.explosion();
+  cameraShake = Math.max(cameraShake, 0.6);
+  scene.remove(p.mesh);
+  p.mesh.geometry.dispose();
+  p.mesh.material.dispose();
+}
+
+function updateEnemyProjectiles(dt) {
+  for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+    const p = enemyProjectiles[i];
+    p.life -= dt;
+    p.vel.y -= 55 * dt;
+    p.mesh.position.x += p.vel.x * dt;
+    p.mesh.position.y += p.vel.y * dt;
+    p.mesh.position.z += p.vel.z * dt;
+    p.mesh.rotation.x += dt * 5;
+    p.mesh.rotation.y += dt * 4;
+
+    let hit = false;
+    // Player
+    const puPos = ultraman.upperBodyPosition();
+    if (p.mesh.position.distanceTo(puPos) < ultraman.radius + 4) {
+      ultraman.damage(12);
+      effects.spawnImpact(puPos.clone());
+      cameraShake = Math.max(cameraShake, 1.2);
+      sfx.hit();
+      hit = true;
+    }
+    // Ground
+    if (!hit && p.mesh.position.y <= 2) hit = true;
+    // Buildings — a stray bolt topples whatever it strikes
+    if (!hit) {
+      for (const b of buildings) {
+        if (b.userData.fallen) continue;
+        const dx = p.mesh.position.x - b.position.x;
+        const dz = p.mesh.position.z - b.position.z;
+        if (Math.abs(dx) < b.userData.w / 2 + 3 && Math.abs(dz) < b.userData.d / 2 + 3 &&
+            p.mesh.position.y < b.userData.h + 4) {
+          kickBuilding(b, p.vel.x, p.vel.z, 75);
+          hit = true;
+          break;
+        }
+      }
+    }
+    if (hit || p.life <= 0) {
+      detonateBolt(p);
+      enemyProjectiles.splice(i, 1);
+    }
+  }
+}
+
+function clearEnemyProjectiles() {
+  for (const p of enemyProjectiles) {
+    scene.remove(p.mesh);
+    p.mesh.geometry.dispose();
+    p.mesh.material.dispose();
+  }
+  enemyProjectiles.length = 0;
+}
+
 const clock = new THREE.Clock();
 
 function animate() {
@@ -1001,6 +1118,9 @@ function animate() {
 }
 function _animate_inner() {
   const dt = Math.min(clock.getDelta(), 0.05);
+
+  // Nothing to drive until a stage has been built (start screen still up).
+  if (!scene) return;
 
   if (gameStarted && !gameOver && !paused) {
     // ----- Input direction -----
@@ -1212,10 +1332,20 @@ function _animate_inner() {
       kaiju.beamFiredThisFrame = false;
     }
 
+    // Slag Crab molten volley — launch the spread, then advance live bolts.
+    if (kaiju.volleyFiredThisFrame) {
+      for (const shot of kaiju.pendingShots) spawnMoltenBolt(shot.origin, shot.dir);
+      kaiju.pendingShots.length = 0;
+      kaiju.volleyFiredThisFrame = false;
+      cameraShake = Math.max(cameraShake, 0.8);
+      sfx.beamFire();
+    }
+    updateEnemyProjectiles(dt);
+
     // Win/lose
     if (ultraman.hp <= 0) {
       gameOver = true;
-      showMessage('敗 北', '怪獸佔據了都市…', '#ff4466', true);
+      showMessage('敗 北', currentLevel === 2 ? '巨蟹吞沒了工廠島…' : '怪獸佔據了都市…', '#ff4466', true);
       sfx.defeat();
       if (document.pointerLockElement) document.exitPointerLock();
     } else if (kaiju.hp <= 0) {

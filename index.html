@@ -105,7 +105,7 @@
           style="width:100%;background:linear-gradient(90deg,#7cf,#28d)"></div></div>
       </div>
       <div class="stat-block enemy">
-        <div class="label">KAIJU 怪獸</div>
+        <div class="label"><span id="enemy-name">KAIJU 怪獸</span></div>
         <div class="bar"><div class="fill" id="enemy-hp-fill"
           style="width:100%;background:linear-gradient(90deg,#f55,#a00)"></div></div>
       </div>
@@ -120,7 +120,7 @@
       M &nbsp;靜音 ・ O &nbsp;設定（可改按鍵）
     </div>
     <div id="cooldown"><span id="beam-cd">光線 就緒</span></div>
-    <div id="city-integrity">城市完整度 <span id="city-val">100%</span></div>
+    <div id="city-integrity"><span id="integrity-label">城市完整度</span> <span id="city-val">100%</span></div>
   </div>
 
   <!-- Settings panel (toggled with O key) -->
@@ -307,7 +307,19 @@
 
   <div id="start-screen">
     <h1>SILVER GIANT</h1>
-    <button id="start-btn">開 始 戰 鬥</button>
+    <div class="sub">選擇關卡</div>
+    <div id="level-select">
+      <button class="level-btn" data-level="1">
+        <span class="lv-no">第一關</span>
+        <span class="lv-name">鋼鐵都市</span>
+        <span class="lv-desc">守護海上都市，擊倒恐龍型怪獸</span>
+      </button>
+      <button class="level-btn lv2" data-level="2">
+        <span class="lv-no">第二關</span>
+        <span class="lv-name">軍艦島工廠</span>
+        <span class="lv-desc">管線與高爐的廢墟島，迎戰熔爐巨蟹</span>
+      </button>
+    </div>
     <div class="ctrls">
       WASD 移動 ・ SHIFT 衝刺 ・ SPACE 跳躍<br>
       左鍵 / J 揮拳 ・ 右鍵 / K 踢擊 ・ F 光線<br>
@@ -315,6 +327,27 @@
       ESC 暫停選單 ・ O 設定
     </div>
   </div>
+  <style>
+    #level-select { display: flex; gap: 24px; margin: 8px 0 8px; flex-wrap: wrap;
+      justify-content: center; }
+    .level-btn {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      width: 230px; padding: 22px 20px; cursor: pointer;
+      background: linear-gradient(180deg, rgba(40,60,90,0.55), rgba(10,16,30,0.7));
+      color: #fff; border: 2px solid rgba(120,180,255,0.5); border-radius: 10px;
+      box-shadow: 0 6px 28px rgba(0,0,0,0.5); transition: transform 0.15s, box-shadow 0.15s;
+      font-family: inherit;
+    }
+    .level-btn:hover { transform: translateY(-4px);
+      box-shadow: 0 12px 36px rgba(60,140,255,0.4); border-color: #8cf; }
+    .level-btn.lv2 { border-color: rgba(255,140,60,0.55);
+      background: linear-gradient(180deg, rgba(90,55,30,0.55), rgba(26,14,8,0.75)); }
+    .level-btn.lv2:hover { box-shadow: 0 12px 36px rgba(255,120,40,0.4); border-color: #ffa24a; }
+    .level-btn .lv-no { font-size: 13px; letter-spacing: 4px; opacity: 0.75; }
+    .level-btn .lv-name { font-size: 26px; font-weight: 800; letter-spacing: 3px; }
+    .level-btn .lv-desc { font-size: 12px; opacity: 0.7; letter-spacing: 1px; line-height: 1.5;
+      text-align: center; }
+  </style>
 
   <script type="importmap">
   {
